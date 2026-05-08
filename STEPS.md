@@ -7,8 +7,11 @@
 Before writing any code, clearly define what you want the model to do:
 
 - Price prediction? Trend prediction? Buy/sell signals?
+Predecir el precio, ver el rango si entre 7 dias, un mes o unos meses o años, esto para ver las señanales de compras y asi
 - What metrics will you use to evaluate success?
+primero ver el que tanto predice bien los datos (esto incluyendo las noticias), tambien los moviminetos que te recomienda, esto verificarlo en que prediga a inicios de año y ver que me recomendo para ver si hubiera sido correcto
 - What time horizon? (short-term, long-term)
+Que pueda decidir en que tiempo las estrategias de compra o venta
 
 **Expected Output:** A clear document or description of the objective.
 
@@ -19,9 +22,14 @@ Before writing any code, clearly define what you want the model to do:
 Research where you can get data and in what format:
 
 - Data sources: Market APIs (Yahoo Finance, Alpha Vantage, etc.)
+   Opciones:
+      yahoofinances para empezar
+      Nasdaq Data Link
+      alpha vintage
 - Data types: Historical prices, volume, news, technical indicators
 
-**Where to save:** `Scripts/finetune/dataset/`
+**Where to do:** `backend/data/preparation/`
+**Where to save:** `backend/data/preparation/`
 
 **Expected Output:** Raw data files in the dataset folder.
 
