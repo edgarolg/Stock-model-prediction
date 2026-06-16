@@ -72,7 +72,7 @@ class LLMService:
         }
 
         try:
-            response = requests.post(self.ollama_url, json=payload, timeout=30)
+            response = requests.post(self.ollama_url, json=payload, timeout=120)
             response.raise_for_status()
             
             # Obtener el campo 'response' de Ollama que contiene el string de nuestro JSON

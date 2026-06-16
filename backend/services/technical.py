@@ -5,22 +5,20 @@ import numpy as np
 def calculate_sma(df: pd.DataFrame, windows: list[int] = [20, 50, 200]) -> pd.DataFrame:
     """
     Calcula Simple Moving Averages (Medias Móviles Simples).
-
-    Una SMA suaviza el precio promediando N días anteriores.
-    SMA20 = tendencia corta, SMA50 = media, SMA200 = largo plazo.
-
-    Args:
-        df: DataFrame con columna 'Close'
-        windows: Lista de períodos a calcular
-
-    Returns:
-        DataFrame con columnas SMA_20, SMA_50, SMA_200
+    Rellena de forma segura los valores nulos iniciales y previene
+    warnings de 'Downcasting' en versiones nuevas de Pandas.
     """
     result = df.copy()
+    
     for window in windows:
+        # 1. Calculamos la media. Si no hay datos suficientes, Pandas pondrá NaNs numéricos por defecto.
         result[f"SMA_{window}"] = result["Close"].rolling(window=window).mean()
+        
+        # 2. Rellenamos los vacíos con el precio de cierre y forzamos el tipo float
+        # para evitar el FutureWarning de object dtype downcasting.
+        result[f"SMA_{window}"] = result[f"SMA_{window}"].fillna(result["Close"]).astype(float)
+        
     return result
-
 
 def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """

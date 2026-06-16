@@ -87,13 +87,42 @@ class AlphaVantageProvider(BaseMarketDataProvider):
         if not self.api_key:
             raise ValueError("[ERROR] ALPHA_VANTAGE_API_KEY no está configurada en las variables de entorno.")
         self.base_url = "https://www.alphavantage.co/query"
+    
+    def procesar_alpha_vantage(self, data: dict) -> pd.DataFrame:
+        # 1. Accedemos solo a la serie temporal
+        time_series = data.get("Time Series (Daily)", {})
+        
+        # 2. Convertimos el diccionario a una lista de registros
+        # Esto transforma {"2026-06-15": {"1. open": "..."}} 
+        # en una lista de dicts con la fecha incluida
+        records = []
+        for date_str, values in time_series.items():
+            record = {
+                "Date": date_str,
+                "Open": float(values["1. open"]),
+                "High": float(values["2. high"]),
+                "Low": float(values["3. low"]),
+                "Close": float(values["4. close"]),
+                "Volume": float(values["5. volume"])
+            }
+            records.append(record)
+            
+        # 3. Creamos el DataFrame
+        df = pd.DataFrame(records)
+        
+        # 4. Convertimos la columna Date a datetime y la ponemos como índice
+        df["Date"] = pd.to_datetime(df["Date"])
+        df.set_index("Date", inplace=True)
+        
+        # 5. Ordenamos cronológicamente (Alpha Vantage suele mandar el más reciente primero)
+        return df.sort_index()
 
     def fetch_history(self, ticker: str, period: str) -> pd.DataFrame:
         print(f"[-] Descargando historial de {ticker.upper()} desde Alpha Vantage...")
         params = {
             "function": "TIME_SERIES_DAILY",
             "symbol": ticker.upper(),
-            "outputsize": "full",  # Requiere cuenta Premium para esta opción
+            "outputsize": "compact",  # Requiere cuenta Premium para esta opción
             "apikey": self.api_key
         }
         
@@ -109,26 +138,9 @@ class AlphaVantageProvider(BaseMarketDataProvider):
         if time_series_key not in data:
             raise ValueError(f"No se pudieron estructurar datos de Alpha Vantage para {ticker}. Respuesta inválida.")
 
-        raw_dict = data[time_series_key]
-        df = pd.DataFrame.from_dict(raw_dict, orient='index')
-        
-        df = df.rename(columns={
-            "1. open": "Open",
-            "2. high": "High",
-            "3. low": "Low",
-            "4. close": "Close",
-            "5. volume": "Volume"
-        })
-        
-        df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
-        df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
+        df = self.procesar_alpha_vantage(data)
 
-        period_map = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "max": 2000}
-        days_requested = period_map.get(period, 730)
-        days_to_keep = days_requested + 250
-        
-        return df.tail(days_to_keep)
+        return df.tail(300)
 
     def fetch_info(self, ticker: str) -> dict:
         print(f"[-] Descargando metadata de {ticker.upper()} desde Alpha Vantage...")

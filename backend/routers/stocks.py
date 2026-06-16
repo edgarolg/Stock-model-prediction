@@ -1,16 +1,31 @@
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+from typing import Dict, Any
+
 from backend.services.market_data import get_stock_data, get_stock_info
 from backend.services.technical import calculate_all_indicators, get_latest_signals
-from backend.routers.analysis import analysis_orchestrator
+
+# ¡NOTA! Importamos el orquestador desde la carpeta services, no de routers
+from backend.services.analysis import analysis_orchestrator
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
+# ==========================================
+# ESQUEMAS PYDANTIC
+# ==========================================
+class QualitativeAnalysisRequest(BaseModel):
+    """Esquema para recibir los datos de la Fase 1 y pasarlos a la Fase 2"""
+    pred_base_lstm: float
+    technical_signals: Dict[str, Any]
 
+
+# ==========================================
+# RUTAS BÁSICAS DE MERCADO E INDICADORES
+# ==========================================
 @router.get("/{ticker}/info")
 def stock_info(ticker: str):
     """
     Retorna información general de una empresa.
-
     Ejemplo: GET /stocks/AAPL/info
     """
     try:
@@ -27,13 +42,11 @@ def stock_history(
 ):
     """
     Retorna el historial de precios OHLCV de un ticker.
-
     Ejemplo: GET /stocks/AAPL/history?period=3mo
     """
     try:
         df = get_stock_data(ticker.upper(), period=period)
 
-        # Convertimos el DataFrame a lista de dicts para JSON
         records = []
         for date, row in df.iterrows():
             records.append({
@@ -64,7 +77,6 @@ def stock_indicators(
 ):
     """
     Retorna los indicadores técnicos calculados (RSI, MACD, SMA) para un ticker.
-
     Ejemplo: GET /stocks/AAPL/indicators?period=1y
     """
     try:
@@ -72,7 +84,6 @@ def stock_indicators(
         df = calculate_all_indicators(df)
         signals = get_latest_signals(df)
 
-        # Historial de indicadores para graficar en el frontend
         history = []
         for date, row in df.iterrows():
             history.append({
@@ -96,18 +107,43 @@ def stock_indicators(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-@router.get("/{ticker}/analysis")
-def get_hybrid_stock_analysis(ticker: str):
+
+
+# ==========================================
+# RUTAS DEL PIPELINE HÍBRIDO (LSTM + OLLAMA)
+# ==========================================
+@router.get("/{ticker}/quantitative")
+def get_quantitative_analysis(ticker: str):
     """
-    Ejecuta el pipeline predictivo completo de StockIntel:
-    Funde la red neuronal LSTM (60%) con el análisis cognitivo de Llama 3.2 + RAG (40%).
+    FASE 1 (RÁPIDA): Inferencia cuantitativa de alta velocidad.
+    Descarga el historial, calcula indicadores y ejecuta la predicción con LSTM.
+    Usar esta ruta para pintar gráficos de inmediato en React.
     """
     try:
-        # Llama de forma directa al orquestador que unifica todo el sistema
-        result = analysis_orchestrator.execute_hybrid_analysis(ticker=ticker)
+        result = analysis_orchestrator.get_quantitative_base(ticker=ticker)
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en el pipeline híbrido: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en el pipeline cuantitativo base: {str(e)}")
+
+
+@router.post("/{ticker}/qualitative")
+def get_qualitative_analysis(ticker: str, payload: QualitativeAnalysisRequest):
+    """
+    FASE 2 (LENTA): Inferencia cualitativa cognitiva (RAG + Ollama).
+    Recibe por POST los datos calculados en la Fase 1.
+    Ejecuta búsqueda en ChromaDB, alimenta a Llama 3.2 y retorna la recomendación final.
+    Usar esta ruta en segundo plano en React (mientras gira un spinner).
+    """
+    try:
+        result = analysis_orchestrator.get_qualitative_adjustment(
+            ticker=ticker,
+            pred_base_usd=payload.pred_base_lstm,
+            technical_signals=payload.technical_signals
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en el pipeline cognitivo (Ollama/RAG): {str(e)}")
