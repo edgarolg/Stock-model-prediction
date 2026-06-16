@@ -5,3 +5,9 @@ scikit-learn==1.6.1
 matplotlib==3.9.2
 fastapi==0.115.0
 uvicorn==0.30.6
+tensorflow>=2.16.1
+xgboost>=2.0.3
+requests>=2.31.0
+chromadb>=0.4.24
+python-dotenv==1.0.1
+SQLAlchemy==2.0.31

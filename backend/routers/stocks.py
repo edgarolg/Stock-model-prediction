@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from backend.services.market_data import get_stock_data, get_stock_info
 from backend.services.technical import calculate_all_indicators, get_latest_signals
+from backend.routers.analysis import analysis_orchestrator
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
@@ -95,3 +96,18 @@ def stock_indicators(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/{ticker}/analysis")
+def get_hybrid_stock_analysis(ticker: str):
+    """
+    Ejecuta el pipeline predictivo completo de StockIntel:
+    Funde la red neuronal LSTM (60%) con el análisis cognitivo de Llama 3.2 + RAG (40%).
+    """
+    try:
+        # Llama de forma directa al orquestador que unifica todo el sistema
+        result = analysis_orchestrator.execute_hybrid_analysis(ticker=ticker)
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en el pipeline híbrido: {str(e)}")

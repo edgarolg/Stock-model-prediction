@@ -1,7 +1,61 @@
-.env
-backend/data/vector_store
+# --- Entornos Virtuales Locales ---
+venv/
+.venv/
+env/
+ENV/
+lib/
+bin/
+include/
+share/
 
-backend/__pycache__
-backend/data/__pycache__
-backend/routers/__pycache__
-backend/services/__pycache__
+# --- Base de Datos Vectorial Nativa (ChromaDB) ---
+# Ocultamos la persistencia en disco para que no se suban los embeddings de prueba
+backend/data/vector_store/
+
+# --- Datasets Binarios Generados ---
+# Los archivos .npy ocupan espacio y se regeneran con el script
+scripts/finetune/dataset/*.npy
+scripts/finetune/dataset/*.png
+
+# --- Modelos y Escaladores Entrenados ---
+# (Opcional) Si deseas trackear tus pesos .keras en Git puedes comentar las líneas de abajo,
+# pero al ser archivos binarios grandes, la buena práctica es ignorarlos.
+backend/data/models/*.keras
+backend/data/models/*.pkl
+
+# --- Archivos de Caché de Python ---
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# --- Variables de Entorno y Credenciales ---
+# ¡CRÍTICO! Nunca subir tus API keys de Alpha Vantage a GitHub
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Herramientas de Entorno de Desarrollo (IDEs) ---
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# --- Archivos del Sistema Operativo ---
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Base de Datos Local
+*.db
+*.sqlite3
+*.csv
