@@ -16,7 +16,6 @@ from backend.services.technical import calculate_all_indicators, get_latest_sign
 from backend.services.rag import rag_service
 from backend.services.llm import llm_service
 
-
 class AnalysisOrchestrator:
     """
     Orquestador principal. Dividido en dos fases (Matemática e IA) 
