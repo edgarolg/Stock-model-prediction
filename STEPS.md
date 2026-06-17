@@ -16,6 +16,8 @@ Este documento registra el progreso actual del backend híbrido, las contingenci
 * [x] **Revisión de Llamadas a las APIs (¡IMPORTANTE!):**
     * *Caso Alpha Vantage:* El pipeline base quedó roto debido a un muro de pago (*Paywall*) implementado por el proveedor sobre el parámetro `outputsize=full`, restringiendo las cuentas gratuitas a 100 días (insuficiente para calcular la `SMA_200` requerida por el LSTM).
     * *Caso Yahoo Finance:* Implementado como proveedor gratuito principal. Sin embargo, genera bloqueos temporales por IP (`Too Many Requests / 429 Rate Limit`) debido al reinicio constante del servidor en desarrollo (`--reload`).
+* [ ] **Obtencion de noticias reales:** hacer que se peuden buscar las noticias reales para que en esto se base al LLM.
+
 
 ---
 
@@ -34,3 +36,4 @@ Este documento registra el progreso actual del backend híbrido, las contingenci
 * [ ] Definición del Stack tecnológico para la interfaz de usuario.
 * [ ] Conexión de los formularios de inversión con la base de datos local.
 * [ ] Creación de gráficos interactivos para comparar el precio real contra la predicción híbrida de la IA.
+* [ ] Validaciones de nombrs y Stocks por error de usuario.

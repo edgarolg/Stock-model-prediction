@@ -12,7 +12,7 @@ from backend.services.market_data import get_stock_data
 from backend.services.technical import calculate_all_indicators
 
 
-def prepare_and_save_data(ticker: str, period: str = "2y", lookback_days: int = 30, train_split: float = 0.8):
+def prepare_and_save_data(ticker: str, period: str = "5y", lookback_days: int = 30, train_split: float = 0.8):
     """
     Descarga, limpia, genera características, normaliza y crea secuencias temporales
     para el entrenamiento del modelo LSTM y XGBoost.

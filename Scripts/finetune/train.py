@@ -73,7 +73,7 @@ def train_lstm_model(ticker: str, epochs: int = 50, batch_size: int = 16):
     
     callbacks = [
         # Detiene el entrenamiento si la pérdida de validación deja de mejorar durante 7 épocas consecutivas
-        EarlyStopping(monitor="val_loss", patience=7, restore_best_weights=True, verbose=1),
+        EarlyStopping(monitor="val_loss", patience=25, restore_best_weights=True, verbose=1),
         # Guarda únicamente la mejor iteración del modelo en disco
         ModelCheckpoint(filepath=output_model_path, monitor="val_loss", save_best_only=True, verbose=1)
     ]
@@ -94,20 +94,6 @@ def train_lstm_model(ticker: str, epochs: int = 50, batch_size: int = 16):
     # 6. Evaluación rápida en el set de testeo independiente
     eval_metrics = model.evaluate(X_test, y_test, verbose=0)
     print(f"[-] Métricas Finales en Test - MSE: {eval_metrics[0]:.6f} | MAE: {eval_metrics[1]:.6f}")
-
-    # 7. Graficar curvas de aprendizaje (Opcional - Útil para auditoría visual)
-    plt.figure(figsize=(10, 5))
-    plt.plot(history.history['loss'], label='Pérdida de Entrenamiento (Train Loss)')
-    plt.plot(history.history['val_loss'], label='Pérdida de Validación (Val Loss)')
-    plt.title(f'Curva de Aprendizaje - LSTM {ticker.upper()}')
-    plt.xlabel('Épocas')
-    plt.ylabel('MSE')
-    plt.legend()
-    plt.grid(True)
-    
-    chart_path = os.path.join(dataset_dir, f"{ticker.lower()}_training_chart.png")
-    plt.savefig(chart_path)
-    print(f"[-] Gráfica de entrenamiento guardada en: {chart_path}")
 
 
 if __name__ == "__main__":
