@@ -5,6 +5,9 @@ load_dotenv()
 
 from backend.routers import analisys
 from backend.routers import stocks
+from backend.routers import portfolio
+
+
 # Primero creas la app
 app = FastAPI(title="StockIntel API Híbrida")
 
@@ -12,9 +15,13 @@ app = FastAPI(title="StockIntel API Híbrida")
 @app.on_event("startup")
 def on_startup():
     init_db()
+
 # Luego agregas los routers
 app.include_router(stocks.router)
 app.include_router(analisys.router)
+app.include_router(portfolio.router)
+
+
 # Después las rutas normales
 @app.get("/")
 def root():
