@@ -31,7 +31,10 @@ Este documento registra el progreso actual del backend híbrido, las contingenci
 ---
 
 ## ⬜ FASE 4: Frontend y Dashboard Visual (Siguiente Paso)
-* [ ] Definición del Stack tecnológico para la interfaz de usuario.
-* [ ] Conexión de los formularios de inversión con la base de datos local.
-* [ ] Creación de gráficos interactivos para comparar el precio real contra la predicción híbrida de la IA.
+* [x] Definición del Stack tecnológico para la interfaz de usuario.
+* [] Conexión de los formularios de inversión con la base de datos local.
+* [x] Creación de gráficos interactivos para comparar el precio real contra la predicción híbrida de la IA.
 * [ ] Validaciones de nombrs y Stocks por error de usuario.
+* [ ] Paginas extra, logica de botones de coneccion.
+* [ ] botones de back, pulir los diseños y que todo sea conecatable entre si.
+* [ ] Manejar la carga de los datos, para que si tarda mucho en cargar que tenga un loadres.

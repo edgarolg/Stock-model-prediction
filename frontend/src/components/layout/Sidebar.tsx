@@ -12,7 +12,7 @@ export default function Sidebar() {
     <aside className="w-64 bg-[#0a0a0b] border-r border-gray-800 flex flex-col h-screen p-4">
       <div className="flex items-center gap-2 mb-10 px-2">
         <BrainCircuit className="text-indigo-500 w-8 h-8" />
-        <span className="text-xl font-bold text-white tracking-wide">TradeAI</span>
+        <span className="text-xl font-bold text-white tracking-wide">AInvestments</span>
       </div>
 
       <nav className="flex-1 space-y-2">
