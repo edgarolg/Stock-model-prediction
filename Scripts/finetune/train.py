@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 
-def train_lstm_model(ticker: str, epochs: int = 50, batch_size: int = 16):
+def train_lstm_model(ticker: str, epochs: int = 100, batch_size: int = 16):
     """
     Carga los datasets pre-procesados (.npy), construye la arquitectura
     de la Red Neuronal Recurrente LSTM, la entrena con regularización,
@@ -73,7 +73,7 @@ def train_lstm_model(ticker: str, epochs: int = 50, batch_size: int = 16):
     
     callbacks = [
         # Detiene el entrenamiento si la pérdida de validación deja de mejorar durante 7 épocas consecutivas
-        EarlyStopping(monitor="val_loss", patience=25, restore_best_weights=True, verbose=1),
+        EarlyStopping(monitor="val_loss", patience=40, restore_best_weights=True, verbose=1),
         # Guarda únicamente la mejor iteración del modelo en disco
         ModelCheckpoint(filepath=output_model_path, monitor="val_loss", save_best_only=True, verbose=1)
     ]
@@ -94,9 +94,3 @@ def train_lstm_model(ticker: str, epochs: int = 50, batch_size: int = 16):
     # 6. Evaluación rápida en el set de testeo independiente
     eval_metrics = model.evaluate(X_test, y_test, verbose=0)
     print(f"[-] Métricas Finales en Test - MSE: {eval_metrics[0]:.6f} | MAE: {eval_metrics[1]:.6f}")
-
-
-if __name__ == "__main__":
-    # Ticker de prueba con el que ya generamos la data .npy en el paso previo
-    ticker_objetivo = "AAPL"
-    train_lstm_model(ticker=ticker_objetivo, epochs=40, batch_size=16)
