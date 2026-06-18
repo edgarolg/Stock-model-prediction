@@ -1,7 +1,26 @@
 import os
+import requests
 import chromadb
-from chromadb.utils import embedding_functions
+from chromadb import Documents, EmbeddingFunction, Embeddings
 from typing import List
+
+class BulletproofOllamaEmbedding(EmbeddingFunction):
+    """
+    Conector de embeddings personalizado a prueba de fallos.
+    Evita los bugs internos de la librería chromadb al hacer la petición HTTP directa.
+    """
+    def __call__(self, input: Documents) -> Embeddings:
+        embeddings = []
+        for text in input:
+            response = requests.post(
+                "http://localhost:11434/api/embeddings",
+                json={"model": "nomic-embed-text", "prompt": text},
+                timeout=120
+            )
+            response.raise_for_status()
+            embeddings.append(response.json()["embedding"])
+        return embeddings
+
 
 class RAGService:
     """
@@ -15,21 +34,14 @@ class RAGService:
         
         self.chroma_client = chromadb.PersistentClient(path=self.db_path)
         
-        # Configuración explícita del pipeline de embeddings usando nomic-embed-text mediante Ollama
-        self.nomic_embedding_function = embedding_functions.OllamaEmbeddingFunction(
-            url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            model_name="nomic-embed-text"
-        )
-        
+        # Le cambiamos el nombre a stock_news_corpus_v3 para que inicie una tabla totalmente limpia
         self.collection = self.chroma_client.get_or_create_collection(
-            name="stock_news_corpus",
-            embedding_function=self.nomic_embedding_function
+            name="stock_news_corpus_v3",
+            embedding_function=BulletproofOllamaEmbedding()
         )
 
     def add_news_to_corpus(self, ticker: str, text_chunk: str, source_metadata: str = "Manual Ingest"):
-        """
-        Divide e indexa un fragmento de texto/noticia asociándolo a un ticker mediante metadatos.
-        """
+        """Divide e indexa un fragmento de texto/noticia."""
         if not text_chunk.strip():
             return
             
@@ -40,13 +52,10 @@ class RAGService:
             metadatas=[{"ticker": ticker.upper(), "source": source_metadata}],
             ids=[doc_id]
         )
-        print(f"[-] Documento indexado con éxito para [{ticker.upper()}] con ID: {doc_id}")
+        print(f"[-] Documento vectorizado e indexado con éxito para [{ticker.upper()}]")
 
     def query_market_context(self, ticker: str, query_text: str = "market analysis and financial performance", top_k: int = 3) -> List[str]:
-        """
-        Busca por similitud de cosenos los fragmentos de noticias más relevantes
-        que correspondan estrictamente al ticker consultado (Filtro Metadata).
-        """
+        """Busca por similitud matemática las noticias más relevantes."""
         try:
             results = self.collection.query(
                 query_texts=[query_text],

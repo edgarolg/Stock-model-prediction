@@ -59,3 +59,5 @@ Desktop.ini
 *.db
 *.sqlite3
 *.csv
+
+backend/data/models
