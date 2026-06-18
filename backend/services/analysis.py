@@ -1,14 +1,16 @@
 import os
 import sys
-import random
-import pickle
+import json
+import time
+import joblib
 import numpy as np
 import pandas as pd
-import tensorflow as tf
-from dotenv import load_dotenv
-
-# Forzar la carga del archivo .env buscando en la raíz del proyecto
-load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.env")))
+from scipy.signal import savgol_filter
+from sklearn.preprocessing import MinMaxScaler
+import xgboost as xgb
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -16,124 +18,179 @@ from backend.services.market_data import get_stock_data
 from backend.services.technical import calculate_all_indicators, get_latest_signals
 from backend.services.rag import rag_service
 from backend.services.llm import llm_service
-
-# Importamos los scripts de finetuning para el Auto-Entrenamiento
-from Scripts.finetune.prepare_dataset import prepare_and_save_data
-from Scripts.finetune.train import train_lstm_model
+from backend.services.news_scraper import news_fetcher
 
 class AnalysisOrchestrator:
     """
-    Orquestador principal. Dividido en dos fases (Matemática e IA) 
-    para soportar carga asíncrona en el frontend (React).
+    Orquestador principal de StockIntel. Implementa la arquitectura híbrida
+    60% Matemática / 40% IA utilizando persistencia en disco con caducidad semanal
+    para evitar saturar la memoria RAM.
     """
 
     def __init__(self):
+        self.lookback_days = 20
+        # Directorio donde se guardarán los .keras, .pkl y .json
         self.models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/models"))
-        self.lookback_days = 30 # Debe coincidir con prepare_dataset.py
+        os.makedirs(self.models_dir, exist_ok=True)
+        # Tiempo de caducidad del modelo: 7 días
+        self.expiration_days = 7
+
+    def _preprocess_and_denoise(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Aplica transformaciones estacionarias y reducción de ruido matemático a la serie temporal.
+        """
+        df = df.copy()
+        if len(df) > 15:
+            df['smoothed_close'] = savgol_filter(df['Close'], window_length=11, polyorder=2)
+        else:
+            df['smoothed_close'] = df['Close']
+
+        df['log_return'] = np.log(df['smoothed_close'] / df['smoothed_close'].shift(1))
+        df['hl_range'] = (df['High'] - df['Low']) / df['Close']
+        df['volume_momentum'] = df['Volume'].pct_change()
+        
+        for i in range(1, 4):
+            df[f'return_lag_{i}'] = df['log_return'].shift(i)
+            
+        return df.dropna()
+
+    def _is_model_valid(self, ticker: str) -> bool:
+        """Verifica si el modelo existe en disco y tiene menos de 1 semana de antigüedad."""
+        meta_path = os.path.join(self.models_dir, f"{ticker}_meta.json")
+        if not os.path.exists(meta_path):
+            return False
+            
+        try:
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+            # Calcular cuántos días han pasado desde el entrenamiento
+            days_old = (time.time() - meta["timestamp"]) / (24 * 3600)
+            return days_old < self.expiration_days
+        except Exception:
+            return False
+
+    def _train_and_save_models(self, ticker: str, df_processed: pd.DataFrame):
+        """Entrena los modelos y los guarda en el disco duro para no gastar RAM."""
+        print(f"[!] Entrenando nuevos modelos para {ticker}... Esto puede tardar unos segundos.")
+        returns_data = df_processed['log_return'].values.reshape(-1, 1)
+        scaler = MinMaxScaler(feature_range=(-1, 1))
+        scaled_returns = scaler.fit_transform(returns_data)
+        
+        X_lstm, y_lstm = [], []
+        for i in range(len(scaled_returns) - self.lookback_days):
+            X_lstm.append(scaled_returns[i:(i + self.lookback_days)])
+            y_lstm.append(scaled_returns[i + self.lookback_days])
+        X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
+
+        # Keras 3 Sintaxis
+        lstm_model = Sequential([
+            Input(shape=(self.lookback_days, 1)),
+            LSTM(32, return_sequences=True),
+            Dropout(0.2),
+            LSTM(16, return_sequences=False),
+            Dropout(0.2),
+            Dense(1)
+        ])
+        lstm_model.compile(optimizer='adam', loss='huber')
+        
+        early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+        split = int(len(X_lstm) * 0.8)
+        
+        lstm_model.fit(
+            X_lstm[:split], y_lstm[:split],
+            validation_data=(X_lstm[split:], y_lstm[split:]),
+            epochs=20, batch_size=32, callbacks=[early_stop], verbose=0
+        )
+
+        lstm_preds = lstm_model.predict(X_lstm, verbose=0)
+        feature_cols = ['hl_range', 'volume_momentum', 'return_lag_1', 'return_lag_2', 'return_lag_3']
+        
+        xgb_features = df_processed.iloc[self.lookback_days:][feature_cols].copy()
+        xgb_features['lstm_meta_feature'] = lstm_preds
+        y_xgb = df_processed.iloc[self.lookback_days:]['log_return'].values
+
+        xgb_model = xgb.XGBRegressor(n_estimators=50, max_depth=3, learning_rate=0.05, random_state=42)
+        xgb_model.fit(xgb_features, y_xgb)
+
+        # ================= GUARDAR EN DISCO =================
+        lstm_model.save(os.path.join(self.models_dir, f"{ticker}_lstm.keras"))
+        joblib.dump(xgb_model, os.path.join(self.models_dir, f"{ticker}_xgb.pkl"))
+        joblib.dump(scaler, os.path.join(self.models_dir, f"{ticker}_scaler.pkl"))
+        
+        meta = {
+            "timestamp": time.time(),
+            "feature_cols": feature_cols,
+            "lookback_days": self.lookback_days
+        }
+        with open(os.path.join(self.models_dir, f"{ticker}_meta.json"), "w") as f:
+            json.dump(meta, f)
+        print(f"[-] Modelos de {ticker} guardados exitosamente en disco.")
+
+    def _load_models(self, ticker: str):
+        """Carga los modelos desde el disco a la memoria solo para predecir."""
+        lstm_model = load_model(os.path.join(self.models_dir, f"{ticker}_lstm.keras"))
+        xgb_model = joblib.load(os.path.join(self.models_dir, f"{ticker}_xgb.pkl"))
+        scaler = joblib.load(os.path.join(self.models_dir, f"{ticker}_scaler.pkl"))
+        with open(os.path.join(self.models_dir, f"{ticker}_meta.json"), "r") as f:
+            meta = json.load(f)
+        return lstm_model, xgb_model, scaler, meta["feature_cols"]
 
     def get_quantitative_base(self, ticker: str) -> dict:
-        """
-        FASE 1: Rápida. Descarga datos, calcula indicadores e infiere con LSTM.
-        Si el modelo no existe, activa el pipeline de auto-entrenamiento.
-        """
+        """FASE 1: Inferencia matemática rápida leyendo desde el disco si es posible."""
         ticker_upper = ticker.upper()
-        ticker_lower = ticker.lower()
-        print(f"=== [FASE 1] Iniciando Análisis Cuantitativo para: {ticker_upper} ===")
-
         try:
-            # 1. Obtener datos históricos recientes e indicadores
-            df = get_stock_data(ticker_upper, period="2y") # Usamos 2y para asegurar suficientes datos limpios
-            df = calculate_all_indicators(df)
-            signals = get_latest_signals(df)
+            df = get_stock_data(ticker_upper, period="6mo")
+            df_indicators = calculate_all_indicators(df)
+            signals = get_latest_signals(df_indicators)
             
-            if df.empty:
-                raise ValueError(f"No se encontraron datos de mercado históricos para {ticker_upper}")
-
             last_close = round(float(df["Close"].iloc[-1]), 2)
+            df_processed = self._preprocess_and_denoise(df_indicators)
 
-            # Rutas de los artefactos del modelo
-            model_path = os.path.join(self.models_dir, f"{ticker_lower}_lstm_model.keras")
-            feature_scaler_path = os.path.join(self.models_dir, f"{ticker_lower}_feature_scaler.pkl")
-            target_scaler_path = os.path.join(self.models_dir, f"{ticker_lower}_target_scaler.pkl")
+            # LÓGICA DE CACHÉ
+            if not self._is_model_valid(ticker_upper):
+                self._train_and_save_models(ticker_upper, df_processed)
+            else:
+                print(f"[-] Cargando modelo existente de {ticker_upper} desde disco (Ahorrando RAM).")
+                
+            lstm_model, xgb_model, scaler, feature_cols = self._load_models(ticker_upper)
 
-            # 2. AUTO-ENTRENAMIENTO (Lazy Training)
-            archivos_existen = os.path.exists(model_path) and os.path.exists(feature_scaler_path) and os.path.exists(target_scaler_path)
+            last_returns = df_processed['log_return'].values[-self.lookback_days:].reshape(-1, 1)
+            last_returns_scaled = scaler.transform(last_returns)
             
-            if not archivos_existen:
-                print(f"[!] Modelos no encontrados para {ticker_upper}. Iniciando auto-entrenamiento On-the-Fly...")
-                # Llamamos a tus scripts. Puedes subir las épocas a 50, EarlyStopping lo detendrá si es necesario.
-                prepare_and_save_data(ticker=ticker_upper, period="2y", lookback_days=self.lookback_days)
-                train_lstm_model(ticker=ticker_upper, epochs=50, batch_size=16)
-                print(f"[-] Auto-entrenamiento completado. Retomando inferencia...")
-
-            # 3. LÓGICA DE INFERENCIA REAL
-            print("[-] Cargando modelo y escaladores desde el disco...")
-            with open(feature_scaler_path, "rb") as f:
-                feature_scaler = pickle.load(f)
-            with open(target_scaler_path, "rb") as f:
-                target_scaler = pickle.load(f)
-
-            model = tf.keras.models.load_model(model_path)
-
-            # Preparar exactamente las mismas columnas usadas en prepare_dataset.py
-            feature_cols = [
-                "Open", "High", "Low", "Close", "Volume", 
-                "SMA_20", "SMA_50", "SMA_200", 
-                "RSI", "MACD", "MACD_Signal", "MACD_Histogram"
-            ]
+            lstm_pred_scaled = lstm_model.predict(np.array([last_returns_scaled]), verbose=0)
             
-            df_features = df[feature_cols].copy()
-            df_features = df_features.dropna() # Limpiar NaNs de las SMA
+            last_row = df_processed.iloc[-1]
+            xgb_input = pd.DataFrame({col: [last_row[col]] for col in feature_cols})
+            xgb_input['lstm_meta_feature'] = lstm_pred_scaled[0]
 
-            if len(df_features) < self.lookback_days:
-                raise ValueError(f"Historial insuficiente post-limpieza. Se requieren {self.lookback_days} días útiles.")
+            predicted_log_return = float(xgb_model.predict(xgb_input)[0])
+            pred_base_lstm = round(last_close * np.exp(predicted_log_return), 2)
 
-            # Extraer la última ventana de tiempo para predecir el "mañana"
-            last_window = df_features.tail(self.lookback_days)
-            scaled_input = feature_scaler.transform(last_window)
-            
-            # Reshape para Keras: (1 muestra, 30 timesteps, n_features)
-            X_inference = np.array([scaled_input])
-            
-            # Predicción y Desnormalización (Usando el Target Scaler)
-            scaled_pred = model.predict(X_inference, verbose=0)
-            pred_base_lstm = float(target_scaler.inverse_transform(scaled_pred)[0][0])
-            pred_base_lstm = round(pred_base_lstm, 2)
-            
-            print(f"[-] Predicción Matemática (LSTM) generada: ${pred_base_lstm}")
-
-            # 4. Formatear la respuesta
             return {
-                "status": "success",
-                "ticker": ticker_upper,
-                "last_close": last_close,
                 "pred_base_lstm": pred_base_lstm,
                 "technical_signals": {
                     "rsi": round(signals.get("rsi", 50.0), 2),
                     "macd": round(signals.get("macd", 0.0), 4),
                     "macd_signal": round(signals.get("macd_signal", 0.0), 4),
                     "macd_histogram": round(signals.get("macd_histogram", 0.0), 4),
-                    "sma_20": round(df["SMA_20"].iloc[-1], 2) if "SMA_20" in df else last_close,
-                    "sma_50": round(df["SMA_50"].iloc[-1], 2) if "SMA_50" in df else last_close,
+                    "sma_20": round(df_indicators["SMA_20"].iloc[-1], 2) if "SMA_20" in df_indicators else last_close,
+                    "sma_50": round(df_indicators["SMA_50"].iloc[-1], 2) if "SMA_50" in df_indicators else last_close,
                     "last_close": last_close
                 }
             }
-
         except Exception as e:
-            raise RuntimeError(f"Fallo interno en el cálculo cuantitativo de {ticker_upper}: {str(e)}")
+            raise RuntimeError(f"Error en Fase 1 Cuantitativa de {ticker_upper}: {str(e)}")
 
     def get_qualitative_adjustment(self, ticker: str, pred_base_usd: float, technical_signals: dict) -> dict:
-        """
-        FASE 2: Lenta (IA). Utiliza RAG y Llama 3 para ajustar la predicción base.
-        """
+        """FASE 2: Inferencia cognitiva (RAG + Ollama) aplicando ponderación estricta 60/40."""
         ticker_upper = ticker.upper()
-        print(f"=== [FASE 2] Iniciando Análisis IA (RAG + LLM) para: {ticker_upper} ===")
-
-        # 1. Recuperación RAG
-        query_context = f"trends financial status of {ticker_upper} RSI {technical_signals.get('rsi')}"
+        
+        # Scrapear noticias al momento
+        news_fetcher.fetch_and_ingest_news(ticker=ticker_upper, limit=5)
+        
+        query_context = f"financial state reports and growth metrics of {ticker_upper}"
         news_context = rag_service.query_market_context(ticker=ticker_upper, query_text=query_context, top_k=3)
 
-        # 2. Inferencia con LLM local
         llm_verdict = llm_service.generate_investment_analysis(
             ticker=ticker_upper,
             pred_base=pred_base_usd,
@@ -141,23 +198,19 @@ class AnalysisOrchestrator:
             news_context=news_context
         )
 
-        ajuste_porcentual = float(llm_verdict.get("ajuste", 0.0))
-        confianza = float(llm_verdict.get("confianza_final", 0.5))
-        razon = llm_verdict.get("razon", "Sin justificación provista.")
+        ajuste_porcentual = float(llm_verdict.get("ajuste_llm_porcentual", 0.0))
+        confianza = float(llm_verdict.get("confianza_analisis", 0.5))
+        justificacion = llm_verdict.get("justificacion", "Sin comentarios.")
         recomendacion = llm_verdict.get("recomendacion", "ESPERAR")
 
-        # 3. Fusión final (60% Math / 40% IA)
-        precio_final_ajustado = (pred_base_usd * 0.60) + (pred_base_usd * (1.0 + ajuste_porcentual) * 0.40)
-
-        print(f"[-] Pred Base Recibida: ${pred_base_usd:.2f} | Ajuste IA: {ajuste_porcentual * 100:+.2f}%")
-        print(f"=== Pipeline IA Finalizado ===")
+        precio_final_ajustado = (pred_base_usd * 0.60) + (pred_base_usd * (1.0 + (ajuste_porcentual * confianza)) * 0.40)
 
         return {
             "ajuste_llm_porcentual": round(ajuste_porcentual, 4),
             "precio_final_hibrido": round(precio_final_ajustado, 2),
             "confianza_analisis": round(confianza, 2),
             "recomendacion": recomendacion.upper(),
-            "justificacion": razon,
+            "justificacion": justificacion,
             "noticias_evaluadas_count": len(news_context)
         }
 

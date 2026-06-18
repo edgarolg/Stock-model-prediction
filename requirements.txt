@@ -11,3 +11,4 @@ requests>=2.31.0
 chromadb>=0.4.24
 python-dotenv==1.0.1
 SQLAlchemy==2.0.31
+ollama>=0.6.2
