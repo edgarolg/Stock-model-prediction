@@ -4,11 +4,11 @@ from typing import Dict, Any
 from sqlalchemy.orm import Session
 
 from backend.database.connection import get_db
-from backend.database.models import HybridAnalysisHistory
 from backend.services.analysis import analysis_orchestrator
 from backend.services.analysis_db import save_hybrid_analysis
 from backend.services.news_scraper import news_fetcher
 from backend.services.rag import rag_service
+from backend.database.models import HybridAnalysisHistory, UserInvestment, InvestmentStrategy
 
 router = APIRouter(prefix="/analysis", tags=["AI Hybrid Intelligence"])
 
@@ -154,7 +154,7 @@ def test_rag_pipeline(ticker: str):
         raise HTTPException(status_code=500, detail=f"Fallo en el pipeline RAG: {str(e)}")
     
 @router.post("/run/full-pipeline/{ticker}", tags=["Pruebas y Debug"])
-def run_full_pipeline(ticker: str, risk_profile: str = "moderado", db: Session = Depends(get_db)):
+def run_full_pipeline(ticker: str, db: Session = Depends(get_db)):
     """
     ENDPOINT UNIFICADO DE PRUEBA: 
     Ejecuta TODO el ecosistema de Inteligencia Híbrida de principio a fin.
@@ -166,6 +166,33 @@ def run_full_pipeline(ticker: str, risk_profile: str = "moderado", db: Session =
     print(f"==================================================")
     
     try:
+        # ---------------------------------------------------------
+        # PASO 0: EXTRAER CONTEXTO DE PORTAFOLIO (¡NUEVO!)
+        # ---------------------------------------------------------
+        print(f"-> [0/4] Verificando si el usuario posee {ticker_upper} en portafolio...")
+        
+        # Buscamos si existe una inversión activa en la base de datos
+        investment = db.query(UserInvestment).filter(
+            UserInvestment.ticker == ticker_upper, 
+            UserInvestment.status == "ACTIVE"
+        ).first()
+        
+        entry_price = None
+        risk_profile_applied = "moderado" # Valor por defecto si no ha comprado la acción
+        
+        if investment:
+            entry_price = investment.entry_price
+            print(f"   [!] Acción en portafolio detectada. Precio compra: ${entry_price}")
+            
+            # Buscamos la estrategia para saber su perfil de riesgo
+            strategy = db.query(InvestmentStrategy).filter(
+                InvestmentStrategy.id == investment.strategy_id
+            ).first()
+            
+            if strategy:
+                risk_profile_applied = strategy.risk_profile.lower()
+                print(f"   [!] Estrategia aplicada: {strategy.name} ({risk_profile_applied})")
+
         # ---------------------------------------------------------
         # PASO 1: FASE CUANTITATIVA (Cerebro Matemático)
         # ---------------------------------------------------------
@@ -179,11 +206,14 @@ def run_full_pipeline(ticker: str, risk_profile: str = "moderado", db: Session =
         # PASO 2 y 3: NOTICIAS (RSS) + RAG + IA (Cerebro Cognitivo)
         # ---------------------------------------------------------
         print(f"-> [2/4] Buscando contexto, leyendo RSS y consultando Llama 3...")
-        # Nota: get_qualitative_adjustment ya incluye internamente news_fetcher y rag_service
+        
+        # ¡IMPORTANTE! Aquí le pasamos el entry_price y el risk_profile extraídos
         fase2_results = analysis_orchestrator.get_qualitative_adjustment(
             ticker=ticker_upper,
             pred_base_usd=pred_base,
-            technical_signals=signals
+            technical_signals=signals,
+            entry_price=entry_price,           # <--- Nuevo parámetro
+            risk_profile=risk_profile_applied  # <--- Nuevo parámetro
         )
         
         # ---------------------------------------------------------
@@ -191,20 +221,17 @@ def run_full_pipeline(ticker: str, risk_profile: str = "moderado", db: Session =
         # ---------------------------------------------------------
         print(f"-> [3/4] Guardando registro de auditoría en SQLite...")
         
-        # 1. Empaquetar las métricas como lo espera tu servicio
         metrics_input = {
             "last_close": signals.get("last_close", pred_base), 
             "pred_lstm": pred_base
         }
         
-        # 2. Empaquetar el output de IA
         ai_output = {
             "ajuste_llm": fase2_results["ajuste_llm_porcentual"],
             "confianza": fase2_results["confianza_analisis"],
             "justificacion": fase2_results["justificacion"]
         }
 
-        # 3. Guardar en base de datos
         db_record = save_hybrid_analysis(
             db=db, 
             ticker=ticker_upper, 
@@ -216,10 +243,14 @@ def run_full_pipeline(ticker: str, risk_profile: str = "moderado", db: Session =
         
         print(f"-> [4/4] Pipeline completado con éxito. ID de DB: {db_record.id}")
         
-        # Retornar el informe completo consolidado
         return {
             "status": "success",
             "ticker": ticker_upper,
+            "portfolio_context": {                     # <--- Devolvemos esto al frontend
+                "owned": bool(investment),
+                "entry_price": entry_price,
+                "strategy_applied": risk_profile_applied
+            },
             "resumen_ejecutivo": {
                 "precio_cierre_hoy": signals.get("last_close"),
                 "prediccion_base_lstm": pred_base,
@@ -231,18 +262,16 @@ def run_full_pipeline(ticker: str, risk_profile: str = "moderado", db: Session =
             "detalles_tecnicos": {
                 "indicadores_usados": signals,
                 "ajuste_matematico_aplicado": fase2_results["ajuste_llm_porcentual"],
-                "noticias_leidas_por_llm": fase2_results["noticias_evaluadas_count"]
+                "noticias_leidas_por_llm": fase2_results.get("noticias_evaluadas_count", 0)
             },
             "auditoria": {
-                "database_id": db_record.id,
-                "perfil_de_riesgo": risk_profile
+                "database_id": db_record.id
             }
         }
 
     except Exception as e:
         print(f"[ERROR FATAL] El pipeline falló: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Fallo en el pipeline completo: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=f"Fallo en el pipeline completo: {str(e)}")    
 
 # =====================================================================
 # RUTAS DE HISTORIAL Y AUDITORÍA (BASE DE DATOS)

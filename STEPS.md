@@ -38,3 +38,25 @@ Este documento registra el progreso actual del backend híbrido, las contingenci
 * [ ] Paginas extra, logica de botones de coneccion.
 * [ ] botones de back, pulir los diseños y que todo sea conecatable entre si.
 * [ ] Manejar la carga de los datos, para que si tarda mucho en cargar que tenga un loadres.
+
+cosa por pagina
+protafolio
+    ver que al hacer el analisis te mande a una donde se hace el pipline completo pero cuado se le pica a la parte de la accion tambien haaga el analisis
+    ver como hacer para que si tienes acciones de la accion, que te salgan cuando te vas al analisis de ia, un mini resumen de tus acciones de esa
+analisis
+    ponerlo en ingels
+    ver que si haga el reanalisis
+    ver que si despliegue mas noticas al picarle
+    ver si la graifa peude tener mas datos y que sea mas interactiva
+    ver que mas gfraficas poner, que se vea mas perron
+dashboar
+    ponerlo en ingles
+    ver que cosas salen bien al inicio
+
+generales
+al hacer el analisis, simpre hacer uno completo o nomas mostrar los datos necesarios y luego ya si el usuario queire ahcer un aanalisi hibrido
+generar validacion de busquedas
+    que al buscar solo traiga datos basicos
+quitar cosa de notis y perfila
+    comentarlas nomas por si despeus se usan
+quitar todos los erroes

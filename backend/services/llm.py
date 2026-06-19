@@ -13,30 +13,39 @@ class LLMService:
         self.ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/api/generate")
         self.model_name = os.getenv("OLLAMA_MODEL", "llama3")
 
-    def generate_investment_analysis(
+def generate_investment_analysis(
         self, 
         ticker: str, 
         pred_base: float, 
         technical_signals: Dict[str, Any], 
-        news_context: List[str]
+        news_context: List[str],
+        entry_price: float = None,       # <--- NUEVO PARÁMETRO
+        risk_profile: str = "moderado"   # <--- NUEVO PARÁMETRO
     ) -> Dict[str, Any]:
         """
-        Envía la predicción matemática base, las señales técnicas y el contexto RAG de noticias
-        a Llama 3 para obtener un ajuste porcentual del precio y la recomendación final estructurada.
+        Envía la predicción matemática base, las señales técnicas, el contexto RAG de noticias
+        y el estado actual del portafolio del usuario a Llama 3 para obtener un ajuste y recomendación.
         """
         formatted_news = "\n".join([f"- {news}" for news in news_context]) if news_context else "No hay noticias recientes disponibles en el corpus."
 
+        # Lógica para determinar el contexto del portafolio que le pasaremos a la IA
+        if entry_price:
+            portfolio_status = f"El usuario YA POSEE esta acción en su portafolio. Precio de entrada (compra): ${entry_price:.2f}."
+        else:
+            portfolio_status = "El usuario NO POSEE esta acción actualmente. Está evaluando una posible primera compra."
+
         system_prompt = (
             "Eres un Analista Cuantitativo Senior de Riesgos de Wall Street experto en trading algorítmico y modelos híbridos.\n"
-            "Tu tarea consiste en recibir una predicción matemática de precio base (Fase 1), señales técnicas de mercado y un contexto extraído de noticias (RAG), "
-            "para calcular una modulación cognitiva cualitativa.\n\n"
+            "Tu tarea consiste en recibir una predicción matemática de precio base (Fase 1), señales técnicas, contexto de noticias (RAG), "
+            "y la situación del portafolio del cliente para calcular una modulación cognitiva cualitativa.\n\n"
             
             "REGLAS CRÍTICAS DE OPERACIÓN:\n"
-            "1. Determina un 'ajuste_llm_porcentual' que represente el impacto del sentimiento macro y noticias. Debe ser un número FLOTANTE ESTRICTO entre -0.05 y 0.05 (ej. 0.025 significa +2.5%, -0.012 significa -1.2%).\n"
+            "1. Determina un 'ajuste_llm_porcentual' que represente el impacto del sentimiento macro y noticias. Debe ser un número FLOTANTE ESTRICTO entre -0.05 y 0.05.\n"
             "2. Está estrictamente PROHIBIDO salirse del rango [-0.05, 0.05]. Si el mercado es neutral, asigna 0.0.\n"
-            "3. Define 'confianza_analisis' como un flotante estricto entre 0.0 y 1.0 (ej. 0.85) según la calidad, vigencia del contexto RAG y confluencia técnica.\n"
-            "4. Determina la 'recomendacion' basándote en la convergencia de señales. Debe ser EXACTAMENTE una de estas tres cadenas: 'INVERTIR', 'ESPERAR' o 'NO INVERTIR'.\n"
-            "5. En 'justificacion', redacta una síntesis analítica y concisa (máximo 3 frases) vinculando las noticias macro con los indicadores técnicos.\n\n"
+            "3. Define 'confianza_analisis' como un flotante estricto entre 0.0 y 1.0 (ej. 0.85) según la calidad y confluencia técnica.\n"
+            "4. Determina la 'recomendacion' ('INVERTIR', 'ESPERAR' o 'NO INVERTIR') basándote en la convergencia de señales Y EN EL CONTEXTO DEL PORTAFOLIO. "
+            "Si el usuario ya posee la acción, 'ESPERAR' significa mantener la posición (Hold), 'NO INVERTIR' significa no comprar más (o vender si hay riesgo extremo).\n"
+            "5. En 'justificacion', redacta una síntesis analítica (máximo 3 frases) vinculando las noticias, lo técnico, su perfil de riesgo y si la acción ya es rentable respecto a su precio de entrada.\n\n"
             
             "RESTRICCIÓN ABSOLUTA DE FORMATO:\n"
             "Responde EXCLUSIVAMENTE con el objeto JSON crudo. No agregues introducciones, explicaciones, ni bloques de código de marcado de tipo ```json```.\n\n"
@@ -45,17 +54,23 @@ class LLMService:
             "{\n"
             "  \"ajuste_llm_porcentual\": 0.025,\n"
             "  \"confianza_analisis\": 0.85,\n"
-            "  \"justificacion\": \"El fuerte volumen comprador y el soporte clave en la SMA_50 se alinean con las noticias de crecimiento de ingresos reportadas en el RAG, justificando un ajuste alcista moderado.\",\n"
+            "  \"justificacion\": \"La acción supera ampliamente su precio de entrada. Dado su perfil agresivo, el soporte en SMA_50 y las noticias positivas de ingresos justifican mantener e incluso ampliar la posición.\",\n"
             "  \"recomendacion\": \"INVERTIR\"\n"
             "}"
         )
 
         user_prompt = (
+            f"### CONTEXTO DEL PORTAFOLIO DEL CLIENTE\n"
+            f"- Situación: {portfolio_status}\n"
+            f"- Perfil de Riesgo del Inversor: {risk_profile.upper()}\n\n"
+            
             f"### CONTEXTO DE ANÁLISIS PARA: {ticker.upper()}\n"
             f"- Predicción Numérica Base del LSTM (Precio Cierre Mañana): ${pred_base:.2f}\n"
             f"- Estado Técnico Actual: {json.dumps(technical_signals)}\n\n"
+            
             f"### CONTEXTO MACROECONÓMICO DE NOTICIAS (RAG):\n"
             f"{formatted_news}\n\n"
+            
             f"Genera tu veredicto de ajuste financiero en formato JSON siguiendo las reglas estipuladas:"
         )
 

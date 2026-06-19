@@ -181,7 +181,7 @@ class AnalysisOrchestrator:
         except Exception as e:
             raise RuntimeError(f"Error en Fase 1 Cuantitativa de {ticker_upper}: {str(e)}")
 
-    def get_qualitative_adjustment(self, ticker: str, pred_base_usd: float, technical_signals: dict) -> dict:
+    def get_qualitative_adjustment(self, ticker: str, pred_base_usd: float, technical_signals: dict,entry_price: float = None, risk_profile: str = "moderado") -> dict:
         """FASE 2: Inferencia cognitiva (RAG + Ollama) aplicando ponderación estricta 60/40."""
         ticker_upper = ticker.upper()
         
@@ -195,7 +195,9 @@ class AnalysisOrchestrator:
             ticker=ticker_upper,
             pred_base=pred_base_usd,
             technical_signals=technical_signals,
-            news_context=news_context
+            news_context=news_context,
+            entry_price=entry_price,
+            risk_profile=risk_profile   
         )
 
         ajuste_porcentual = float(llm_verdict.get("ajuste_llm_porcentual", 0.0))
