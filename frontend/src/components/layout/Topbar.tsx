@@ -12,7 +12,7 @@ export default function Topbar() {
         />
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="hidden flex items-center gap-4 ">
         <button className="p-2 text-gray-400 hover:text-white transition-colors">
           <Bell className="w-5 h-5" />
         </button>

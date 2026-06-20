@@ -1,66 +1,220 @@
-import { useState } from 'react';
-import { ArrowUpRight, ArrowDownRight, BrainCircuit, Activity, Database, ShieldAlert, Plus, TrendingUp, TrendingDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowUpRight, ArrowDownRight, BrainCircuit, Activity, Database, ShieldAlert, Plus, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { DashboardStockCard, DashboardPipelineFeed, RecentMovement, DistributionItem, APIInvestment, APIAnalysisRecord, APIStockHistoryPoint } from '../types';
 
-// --- DATOS DE PRUEBA (MOCKS) ---
 
-// 1. Tarjetas Superiores (Sparklines)
-const stockCards = [
-  { ticker: 'AAPL', name: 'Apple Inc.', price: '$189.43', change: '+2.34%', isUp: true, data: [10, 12, 11, 14, 15, 14, 17] },
-  { ticker: 'TSLA', name: 'Tesla Inc.', price: '$214.20', change: '-1.15%', isUp: false, data: [20, 19, 21, 18, 17, 16, 15] },
-  { ticker: 'NVDA', name: 'NVIDIA Corp.', price: '$875.28', change: '+4.56%', isUp: true, data: [30, 35, 33, 40, 45, 50, 55] },
-  { ticker: 'MSFT', name: 'Microsoft', price: '$405.12', change: '+0.89%', isUp: true, data: [20, 21, 21, 22, 22, 23, 24] },
-];
-
-// 2. Feed del Pipeline de IA (Simulando lo que devolverá FastAPI)
-const aiPipelineFeed = [
-  { id: 1, ticker: 'NVDA', lstm_base: 'Alcista', sentiment: 'Muy Positivo', verdict: 'Invertir (Alta Confianza)', confidence: 92, time: 'Hace 10 min' },
-  { id: 2, ticker: 'AAPL', lstm_base: 'Lateral', sentiment: 'Positivo', verdict: 'Invertir (Riesgo Moderado)', confidence: 75, time: 'Hace 45 min' },
-  { id: 3, ticker: 'TSLA', lstm_base: 'Bajista', sentiment: 'Mixto', verdict: 'Esperar (Observar)', confidence: 54, time: 'Hace 2 horas' },
-  { id: 4, ticker: 'META', lstm_base: 'Bajista', sentiment: 'Negativo', verdict: 'No Invertir / Vender', confidence: 88, time: 'Hace 3 horas' },
-];
-
-// 3. Movimientos Recientes del Usuario
-const recentMovements = [
-  { date: '2026-06-18', asset: 'NVDA', type: 'Buy', amount: '$4,376.40', shares: '5 shares' },
-  { date: '2026-06-15', asset: 'AAPL', type: 'Sell', amount: '$1,894.30', shares: '10 shares' },
-];
-
-// 4. Distribución del Mercado (Para la gráfica de Dona)
-const aiDistribution = [
-  { name: 'Invertir (Alta Confianza)', value: 35, color: '#10B981' }, 
-  { name: 'Invertir (Riesgo Moderado)', value: 25, color: '#6366F1' }, 
-  { name: 'Esperar (Observar)', value: 25, color: '#F59E0B' },         
-  { name: 'No Invertir / Riesgo', value: 15, color: '#EF4444' },       
-];
+const API_BASE_URL = 'http://localhost:8000';
+const DEFAULT_WATCHLIST = ['AAPL', 'NVDA', 'TSLA', 'MSFT'];
 
 export default function Dashboard() {
-  const [activeRisk, setActiveRisk] = useState('Moderado'); // Estado del Perfil de Riesgo
+  const [activeRisk, setActiveRisk] = useState('Moderate');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  // Data states
+  const [stockCards, setStockCards] = useState<DashboardStockCard[]>([]);
+  const [aiPipelineFeed, setAiPipelineFeed] = useState<DashboardPipelineFeed[]>([]);
+  const [recentMovements, setRecentMovements] = useState<RecentMovement[]>([]);
+  const [aiDistribution, setAiDistribution] = useState([
+    { name: 'Buy', value: 0, color: '#10B981' }, 
+    { name: 'Hold', value: 0, color: '#F59E0B' },         
+    { name: 'Sell', value: 0, color: '#EF4444' }, 
+  ]);
+  const [totalBalance, setTotalBalance] = useState(0);
+
+  const fetchDashboardData = async () => {
+    setRefreshing(true);
+    setApiStatus('checking');
+    
+    try {
+      // 0. HEALTH CHECK
+      try {
+        const healthRes = await fetch(`${API_BASE_URL}/`);
+        if (healthRes.ok) {
+          setApiStatus('online');
+        } else {
+          setApiStatus('offline');
+        }
+      } catch (error) {
+        setApiStatus('offline');
+      }
+
+      // 1. Load Active Portfolio
+      const portfolioRes = await fetch(`${API_BASE_URL}/portfolio/investments/active`);
+      if (portfolioRes.ok) {
+        const portfolioData = await portfolioRes.json();
+        const movements = portfolioData.data.map((inv: APIInvestment) => ({
+          date: new Date().toISOString().split('T')[0], 
+          asset: inv.ticker,
+          type: 'Buy', 
+          amount: `$${(inv.entry_price * inv.shares_quantity).toLocaleString('en-US', {minimumFractionDigits: 2})}`,
+          shares: `${inv.shares_quantity} shares`,
+          totalValue: inv.entry_price * inv.shares_quantity
+        }));
+        setRecentMovements(movements);
+        
+        // Calculate total balance
+        const balance = movements.reduce((acc: number, curr: any) => acc + curr.totalValue, 0);
+        setTotalBalance(balance);
+      }
+
+      // 2. Load Hybrid AI Analysis History
+      const historyRes = await fetch(`${API_BASE_URL}/analysis/history/all?limit=20`);
+      if (historyRes.ok) {
+        const historyData = await historyRes.json();
+        
+        // Map to table feed (Translating Spanish DB strings to English)
+        const feed = historyData.data.map((record: APIAnalysisRecord) => ({
+          id: record.id,
+          ticker: record.ticker,
+          lstm_base: record.pred_base_lstm > record.last_real_close ? 'Bullish' : 'Bearish',
+          sentiment: 'AI Eval',
+          verdict: record.recomendacion === 'INVERTIR' ? 'BUY' : record.recomendacion === 'ESPERAR' ? 'HOLD' : 'SELL',
+          confidence: Math.round(record.confianza_analisis * 100) || 85,
+          time: new Date(record.execution_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+        }));
+        setAiPipelineFeed(feed);
+
+        // Map to distribution chart
+        let inv = 0, esp = 0, no_inv = 0;
+        historyData.data.forEach((r: APIAnalysisRecord) => {
+          if (r.recomendacion === 'INVERTIR') inv++;
+          else if (r.recomendacion === 'ESPERAR') esp++;
+          else no_inv++;
+        });
+        
+        const total = inv + esp + no_inv || 1; 
+        setAiDistribution([
+          { name: 'Buy', value: Math.round((inv/total)*100), color: '#10B981' }, 
+          { name: 'Hold', value: Math.round((esp/total)*100), color: '#F59E0B' },         
+          { name: 'Sell', value: Math.round((no_inv/total)*100), color: '#EF4444' }
+        ]);
+      }
+
+      // 3. Load Market Data (Sparklines)
+      const cardsPromises = DEFAULT_WATCHLIST.map(async (ticker) => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/stocks/${ticker}/history?period=1mo`);
+          if (!res.ok) return null;
+          const hist = await res.json();
+          
+          if (!hist.data || hist.data.length < 2) return null;
+          
+          const latestClose = hist.data[hist.data.length - 1].close;
+          const previousClose = hist.data[hist.data.length - 2].close;
+          const pctChange = ((latestClose - previousClose) / previousClose) * 100;
+          
+          return {
+            ticker: ticker,
+            name: ticker,
+            price: `$${latestClose.toLocaleString('en-US', {minimumFractionDigits: 2})}`,
+            change: `${pctChange > 0 ? '+' : ''}${pctChange.toFixed(2)}%`,
+            isUp: pctChange >= 0,
+            data: hist.data.slice(-10).map((d: APIStockHistoryPoint) => d.close) 
+          };
+        } catch (e) {
+          console.error(`Error fetching ${ticker}`, e);
+          return null;
+        }
+      });
+
+      const resolvedCards = (await Promise.all(cardsPromises)).filter(c => c !== null);
+      if(resolvedCards.length > 0) setStockCards(resolvedCards);
+
+    } catch (error) {
+      console.error("FastAPI Sync Error:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 pb-10">
+        <div className="xl:col-span-2 space-y-8 animate-pulse">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div className="space-y-3 w-full">
+              <div className="h-8 bg-gray-800 rounded-lg w-64"></div>
+              <div className="h-4 bg-gray-800 rounded-lg w-96 max-w-full"></div>
+            </div>
+            <div className="h-10 bg-gray-800 rounded-xl w-48"></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="bg-[#141415] border border-gray-800 rounded-2xl h-32"></div>
+            ))}
+          </div>
+          <div className="bg-[#141415] border border-gray-800 rounded-2xl h-64"></div>
+          <div className="bg-[#141415] border border-gray-800 rounded-2xl h-64"></div>
+        </div>
+        <div className="space-y-6 animate-pulse">
+          <div className="bg-[#141415] border border-gray-800 rounded-2xl h-32"></div>
+          <div className="bg-[#141415] border border-gray-800 rounded-2xl h-24"></div>
+          <div className="bg-[#141415] border border-gray-800 rounded-2xl h-80"></div>
+          <div className="space-y-3 pt-2">
+            <div className="bg-[#141415] border border-gray-800 rounded-xl h-12"></div>
+            <div className="bg-[#141415] border border-gray-800 rounded-xl h-12"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 pb-10">
       
       {/* ==========================================
-          COLUMNA IZQUIERDA (Principal 2/3)
+          LEFT COLUMN (Main 2/3)
       ========================================== */}
       <div className="xl:col-span-2 space-y-8">
         
-        {/* Encabezado y Status del Motor */}
+        {/* Header and Engine Status */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white tracking-wide">Welcome back, Trader</h1>
-            <p className="text-gray-400 mt-1">Tu terminal de inteligencia híbrida y gestión de portafolio.</p>
+            <p className="text-gray-400 mt-1">Your hybrid intelligence and portfolio management terminal.</p>
           </div>
-          <div className="flex items-center gap-2 bg-[#141415] border border-gray-800 px-4 py-2 rounded-xl">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
-            <span className="text-sm font-medium text-gray-300">StockIntel Engine: <span className="text-emerald-400 font-bold">Online</span></span>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={fetchDashboardData}
+              disabled={refreshing}
+              className="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin text-indigo-400' : ''}`} />
+            </button>
+            <div className="flex items-center gap-2 bg-[#141415] border border-gray-800 px-4 py-2 rounded-xl">
+              <span className="relative flex h-3 w-3">
+                {apiStatus !== 'offline' && (
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    apiStatus === 'online' ? 'bg-emerald-400' : 'bg-amber-400'
+                  }`}></span>
+                )}
+                <span className={`relative inline-flex rounded-full h-3 w-3 ${
+                  apiStatus === 'online' ? 'bg-emerald-500' : 
+                  apiStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-500'
+                }`}></span>
+              </span>
+              <span className="text-sm font-medium text-gray-300">
+                FastAPI Backend:{' '}
+                <span className={`font-bold ${
+                  apiStatus === 'online' ? 'text-emerald-400' : 
+                  apiStatus === 'offline' ? 'text-rose-400' : 'text-amber-400'
+                }`}>
+                  {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking...'}
+                </span>
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* 1. Tarjetas de Rastreo Rápido */}
+        {/* 1. Quick Tracking Cards (Sparklines) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {stockCards.map((stock) => (
             <div key={stock.ticker} className="bg-[#141415] border border-gray-800 rounded-2xl p-4 hover:border-gray-600 transition-colors cursor-pointer group">
@@ -74,33 +228,38 @@ export default function Dashboard() {
               <p className="text-xl font-bold text-white mb-2">{stock.price}</p>
               <div className="h-8 w-full opacity-70 group-hover:opacity-100 transition-opacity">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={stock.data.map((val, i) => ({ value: val, index: i }))}>
+                  <LineChart data={stock.data.map((val: any, i: number) => ({ value: val, index: i }))}>
                     <Line type="monotone" dataKey="value" stroke={stock.isUp ? '#10B981' : '#EF4444'} strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
           ))}
+          {stockCards.length === 0 && (
+            <div className="col-span-4 text-center py-6 border border-dashed border-gray-700 rounded-xl text-gray-500">
+              Could not load yfinance data. Check your connection.
+            </div>
+          )}
         </div>
 
-        {/* 2. Feed de Predicciones Híbridas (Live Pipeline) */}
+        {/* 2. Hybrid Predictions Feed (Live Pipeline) */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6 shadow-lg shadow-black/20">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <BrainCircuit className="text-indigo-400 w-5 h-5" /> Live AI Pipeline Feed
             </h3>
-            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-md">Últimos análisis guardados</span>
+            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-md">Latest DB queries</span>
           </div>
           
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-xs text-gray-500 uppercase border-b border-gray-800">
                 <tr>
-                  <th className="pb-3 font-medium">Activo</th>
-                  <th className="pb-3 font-medium">Modelo LSTM</th>
-                  <th className="pb-3 font-medium">Sentimiento RAG</th>
-                  <th className="pb-3 font-medium">Veredicto Final</th>
-                  <th className="pb-3 text-right font-medium">Confianza</th>
+                  <th className="pb-3 font-medium">Asset</th>
+                  <th className="pb-3 font-medium">LSTM Model</th>
+                  <th className="pb-3 font-medium">AI Sentiment</th>
+                  <th className="pb-3 font-medium">Final Verdict</th>
+                  <th className="pb-3 text-right font-medium">Confidence</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
@@ -111,24 +270,19 @@ export default function Dashboard() {
                       <div className="text-[10px] text-gray-500">{row.time}</div>
                     </td>
                     <td className="py-4 text-gray-300">
-                      {row.lstm_base === 'Alcista' ? <span className="flex items-center text-emerald-400 gap-1"><TrendingUp className="w-3 h-3"/> Alcista</span> : 
-                       row.lstm_base === 'Bajista' ? <span className="flex items-center text-rose-400 gap-1"><TrendingDown className="w-3 h-3"/> Bajista</span> : 
-                       <span className="flex items-center text-gray-400 gap-1"><Activity className="w-3 h-3"/> Lateral</span>}
+                      {row.lstm_base === 'Bullish' ? <span className="flex items-center text-emerald-400 gap-1"><TrendingUp className="w-3 h-3"/> Bullish</span> : 
+                       row.lstm_base === 'Bearish' ? <span className="flex items-center text-rose-400 gap-1"><TrendingDown className="w-3 h-3"/> Bearish</span> : 
+                       <span className="flex items-center text-gray-400 gap-1"><Activity className="w-3 h-3"/> Neutral</span>}
                     </td>
                     <td className="py-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        row.sentiment.includes('Positivo') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                        row.sentiment.includes('Negativo') ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                        'bg-gray-700/50 text-gray-300 border border-gray-600'
-                      }`}>
+                      <span className={`px-2 py-1 rounded text-xs font-medium border bg-gray-700/50 text-gray-300 border-gray-600`}>
                         {row.sentiment}
                       </span>
                     </td>
                     <td className="py-4">
                       <span className={`font-bold ${
-                        row.verdict.includes('Alta Confianza') ? 'text-emerald-400' :
-                        row.verdict.includes('Moderado') ? 'text-indigo-400' :
-                        row.verdict.includes('Esperar') ? 'text-amber-400' : 'text-rose-400'
+                        row.verdict === 'BUY' ? 'text-emerald-400' :
+                        row.verdict === 'HOLD' ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {row.verdict}
                       </span>
@@ -143,26 +297,33 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ))}
+                {aiPipelineFeed.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-gray-500">
+                      No analysis history found. Run the FastAPI pipeline first.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* 3. Tabla de Movimientos Recientes (Portafolio) */}
+        {/* 3. Recent Portfolio Movements */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Database className="text-gray-400 w-5 h-5" /> Movimientos Recientes
+              <Database className="text-gray-400 w-5 h-5" /> Recent Movements
             </h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-xs text-gray-500 uppercase border-b border-gray-800">
                 <tr>
-                  <th className="pb-3 font-medium">Fecha</th>
-                  <th className="pb-3 font-medium">Activo</th>
-                  <th className="pb-3 font-medium">Operación</th>
-                  <th className="pb-3 text-right font-medium">Monto</th>
+                  <th className="pb-3 font-medium">Date</th>
+                  <th className="pb-3 font-medium">Asset</th>
+                  <th className="pb-3 font-medium">Action</th>
+                  <th className="pb-3 text-right font-medium">Total Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
@@ -181,6 +342,13 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ))}
+                {recentMovements.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-gray-500">
+                      No active positions in your SQLite database.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -189,28 +357,30 @@ export default function Dashboard() {
       </div>
 
       {/* ==========================================
-          COLUMNA DERECHA (Panel Lateral 1/3)
+          RIGHT COLUMN (Side Panel 1/3)
       ========================================== */}
       <div className="space-y-6">
         
-        {/* Bloque 1: Resumen Financiero */}
+        {/* Block 1: Financial Summary */}
         <div className="bg-gradient-to-br from-[#141415] to-[#0a0a0b] border border-gray-800 rounded-2xl p-6 relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-10"><Activity className="w-24 h-24 text-indigo-500"/></div>
-          <p className="text-sm text-gray-400 mb-1 relative z-10">Total Balance</p>
-          <h2 className="text-4xl font-bold text-white mb-2 relative z-10">$124,562.80</h2>
+          <p className="text-sm text-gray-400 mb-1 relative z-10">Total Invested</p>
+          <h2 className="text-4xl font-bold text-white mb-2 relative z-10">
+            ${totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}
+          </h2>
           <p className="text-sm text-emerald-400 flex items-center gap-1 font-medium relative z-10">
-            <ArrowUpRight className="w-4 h-4" /> +12.4% All Time
+            Synced with SQLite
           </p>
         </div>
 
-        {/* Bloque 2: Configuración de Riesgo */}
+        {/* Block 2: Risk Configuration */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6">
           <div className="flex items-center gap-2 mb-4">
             <ShieldAlert className="w-4 h-4 text-gray-400" />
-            <h3 className="text-sm font-bold text-white">Perfil de Riesgo IA</h3>
+            <h3 className="text-sm font-bold text-white">Active Risk Profile</h3>
           </div>
           <div className="grid grid-cols-3 gap-2 bg-gray-900/50 p-1.5 rounded-xl">
-            {['Conservador', 'Moderado', 'Agresivo'].map((risk) => (
+            {['Conservative', 'Moderate', 'Aggressive'].map((risk) => (
               <button
                 key={risk}
                 onClick={() => setActiveRisk(risk)}
@@ -226,9 +396,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Bloque 3: Postura del Mercado (Gráfica Dona) */}
+        {/* Block 3: Market Stance (Donut Chart) */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6">
-          <h3 className="text-sm font-bold text-white mb-4">Distribución de Predicciones</h3>
+          <h3 className="text-sm font-bold text-white mb-4">Historical Distribution</h3>
           
           <div className="h-48 relative mb-6">
             <ResponsiveContainer width="100%" height="100%">
@@ -242,8 +412,8 @@ export default function Dashboard() {
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-xs text-gray-400">Analizados</span>
-              <span className="text-2xl font-bold text-white">100%</span>
+              <span className="text-xs text-gray-400">Analyzed</span>
+              <span className="text-2xl font-bold text-white">{aiPipelineFeed.length}</span>
             </div>
           </div>
 
@@ -260,15 +430,15 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Bloque 4: Botones de Acción */}
+        {/* Block 4: Action Buttons */}
         <div className="space-y-3 pt-2">
           <button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3.5 rounded-xl transition-colors shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
             <BrainCircuit className="w-5 h-5" />
-            Ejecutar Pipeline Global
+            Run Full Pipeline (/run/full-pipeline)
           </button>
           <button className="w-full bg-[#141415] border border-gray-800 hover:bg-gray-800 text-white font-medium py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2">
             <Plus className="w-4 h-4 text-indigo-400" />
-            Registrar Operación Manual
+            Log Investment (/portfolio/investments)
           </button>
         </div>
 

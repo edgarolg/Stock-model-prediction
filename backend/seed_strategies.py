@@ -14,7 +14,7 @@ except ModuleNotFoundError:
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# 3. RUTA A TU BASE DE DATOS (Nota como usamos '/' en lugar de '\' para evitar errores de SQLite)
+# 3. RUTA A TU BASE DE DATOS
 DATABASE_URL = "sqlite:///C:/Users/edgar/Documents/VsCode/StockPrediction/stockintel.db"
 
 # Creamos la conexión
@@ -28,32 +28,38 @@ def seed_data():
         # Asegurarnos de que las tablas existan
         Base.metadata.create_all(bind=engine)
         
-        if db.query(InvestmentStrategy).count() == 0:
-            print("Sembrando estrategias de inversión en stockintel.db...")
-            estrategias = [
-                InvestmentStrategy(
-                    name="Conservador", 
-                    risk_profile="Bajo Riesgo",
-                    description="Prioriza la preservación del capital y retornos estables."
-                ),
-                InvestmentStrategy(
-                    name="Moderado", 
-                    risk_profile="Riesgo Medio",
-                    description="Busca un equilibrio entre crecimiento y seguridad."
-                ),
-                InvestmentStrategy(
-                    name="Agresivo", 
-                    risk_profile="Alto Riesgo",
-                    description="Busca maximizar rendimientos asumiendo volatilidad."
-                )
-            ]
-            db.add_all(estrategias)
-            db.commit()
-            print("✅ ¡Estrategias creadas con éxito en tu base de datos!")
-        else:
-            print("⚠️ Las estrategias ya estaban registradas.")
+        # BORRAR: Eliminamos todas las estrategias existentes para evitar duplicados o idiomas mezclados
+        print("Cleaning up old strategies...")
+        db.query(InvestmentStrategy).delete()
+        db.commit()
+        print("✅ Old strategies deleted.")
+        
+        # INSERTAR: Agregamos las nuevas estrategias en inglés
+        print("Seeding investment strategies in English...")
+        estrategias = [
+            InvestmentStrategy(
+                name="Conservative", 
+                risk_profile="Low Risk",
+                description="Prioritizes capital preservation and stable returns."
+            ),
+            InvestmentStrategy(
+                name="Moderate", 
+                risk_profile="Medium Risk",
+                description="Seeks a balance between growth and security."
+            ),
+            InvestmentStrategy(
+                name="Aggressive", 
+                risk_profile="High Risk",
+                description="Seeks to maximize returns by assuming volatility."
+            )
+        ]
+        db.add_all(estrategias)
+        db.commit()
+        print("✅ Strategies successfully created in your database!")
+
     except Exception as e:
-        print(f"❌ Ocurrió un error: {e}")
+        print(f"❌ An error occurred: {e}")
+        db.rollback() # Revertimos cambios si hay error
     finally:
         db.close()
 

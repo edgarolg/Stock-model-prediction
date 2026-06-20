@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { BrainCircuit, Activity, BookOpen, ChevronRight, Loader2, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Target, History } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar, AreaChart, Area } from 'recharts';
+import { APIStockInfo, APIStockHistoryPoint, APIInvestment, APIAnalysisRecord } from '../types';
+
 
 type Timeframe = '1mo' | '3mo' | '6mo' | '1y';
 
@@ -10,18 +12,18 @@ export default function StockDetail() {
   const currentTicker = ticker ? ticker.toUpperCase() : 'AAPL';
 
   // --- ESTADOS: MERCADO ---
-  const [marketInfo, setMarketInfo] = useState<any>(null);
-  const [allChartData, setAllChartData] = useState<any[]>([]); 
+  const [marketInfo, setMarketInfo] = useState<APIStockInfo | null>(null);
+  const [allChartData, setAllChartData] = useState<APIStockHistoryPoint[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>('3mo'); 
   const [isLoadingMarket, setIsLoadingMarket] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
 
   // --- ESTADOS: PORTAFOLIO ---
-  const [userInvestment, setUserInvestment] = useState<any>(null);
-
+  const [userInvestment, setUserInvestment] = useState<APIInvestment | null>(null);
+  
   // --- ESTADOS: INTELIGENCIA ARTIFICIAL ---
-  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
-  const [aiHistory, setAiHistory] = useState<any[]>([]); // Historial de opiniones de la IA
+  const [aiAnalysis, setAiAnalysis] = useState<APIAnalysisRecord | null>(null);
+  const [aiHistory, setAiHistory] = useState<APIAnalysisRecord[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisSource, setAnalysisSource] = useState('');
 
@@ -41,7 +43,7 @@ export default function StockDetail() {
         if (portfolioRes.ok) {
           const portfolioData = await portfolioRes.json();
           const investmentsArray = Array.isArray(portfolioData) ? portfolioData : (portfolioData.data || []);
-          setUserInvestment(investmentsArray.find((inv: any) => inv.ticker === currentTicker));
+          setUserInvestment(investmentsArray.find((inv: APIInvestment) => inv.ticker === currentTicker));
         }
 
         // C. Precios e Indicadores Técnicos (Usamos el endpoint de indicadores que ya calcula RSI, MACD, etc)
@@ -92,7 +94,7 @@ export default function StockDetail() {
     if (timeframe === '1y') return allChartData;
 
     const referenceDate = new Date(allChartData[allChartData.length - 1].date);
-    let monthsToSubtract = timeframe === '1mo' ? 1 : timeframe === '3mo' ? 3 : 6;
+    const  monthsToSubtract = timeframe === '1mo' ? 1 : timeframe === '3mo' ? 3 : 6;
     
     const cutoffDate = new Date(referenceDate);
     cutoffDate.setMonth(cutoffDate.getMonth() - monthsToSubtract);

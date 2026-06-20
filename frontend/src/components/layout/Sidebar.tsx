@@ -34,7 +34,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-auto">
+      <div className=" hidden mt-auto">
         <button className="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-white transition-all w-full rounded-xl hover:bg-gray-800/30">
           <Settings className="w-5 h-5" />
           Settings

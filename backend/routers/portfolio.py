@@ -73,3 +73,31 @@ def get_active_investments(db: Session = Depends(get_db)):
     """Obtiene todas las acciones que el usuario posee actualmente."""
     investments = db.query(UserInvestment).filter(UserInvestment.status == "ACTIVE").all()
     return {"status": "success", "total_positions": len(investments), "data": investments}
+
+@router.delete("/investments/{investment_id}", summary="Eliminar inversión")
+def delete_investment(investment_id: int, db: Session = Depends(get_db)):
+    """Elimina una acción del portafolio."""
+    inv = db.query(UserInvestment).filter(UserInvestment.id == investment_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Inversión no encontrada")
+    db.delete(inv)
+    db.commit()
+    return {"status": "success", "message": "Inversión eliminada"}
+
+@router.put("/investments/{investment_id}", summary="Editar inversión")
+def update_investment(investment_id: int, inv_data: InvestmentCreate, db: Session = Depends(get_db)):
+    """Edita los datos de una inversión existente."""
+    inv = db.query(UserInvestment).filter(UserInvestment.id == investment_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Inversión no encontrada")
+    
+    # Actualizar los datos
+    inv.ticker = inv_data.ticker.upper()
+    inv.shares_quantity = inv_data.shares_quantity
+    inv.entry_price = inv_data.entry_price
+    if inv_data.strategy_id:
+        inv.strategy_id = inv_data.strategy_id
+        
+    db.commit()
+    db.refresh(inv)
+    return {"status": "success", "data": inv}
