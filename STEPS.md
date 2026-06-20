@@ -32,11 +32,11 @@ Este documento registra el progreso actual del backend híbrido, las contingenci
 
 ## ⬜ FASE 4: Frontend y Dashboard Visual (Siguiente Paso)
 * [x] Definición del Stack tecnológico para la interfaz de usuario.
-* [] Conexión de los formularios de inversión con la base de datos local.
+* [x] Conexión de los formularios de inversión con la base de datos local.
 * [x] Creación de gráficos interactivos para comparar el precio real contra la predicción híbrida de la IA.
-* [ ] Validaciones de nombrs y Stocks por error de usuario.
+* [x] Validaciones de nombrs y Stocks por error de usuario.
 * [x] Paginas extra, logica de botones de coneccion.
-* [ ] botones de back, pulir los diseños y que todo sea conecatable entre si.
+* [x] botones de back, pulir los diseños y que todo sea conecatable entre si.
 * [x] Manejar la carga de los datos, para que si tarda mucho en cargar que tenga un loadres.
 
 cosa por pagina
@@ -44,8 +44,3 @@ details
     hacer interactiva la grafica de los datos, que sea de 1 mes, 2 o año y asi
         ver cvual es el maxico que peudo obtener pero de ahi hacer el ajuste de los graficos
     ver si poner que despliegue las noticias que se usaron
-
-generales
-generar validacion de busquedas
-    que al buscar solo traiga datos basicos
-ver que la IA responda en ingles o en base al idioma que el usuario escoga si meto la traduccion con boton en la app

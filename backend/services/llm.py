@@ -26,52 +26,52 @@ class LLMService:
         Envía la predicción matemática base, las señales técnicas, el contexto RAG de noticias
         y el estado actual del portafolio del usuario a Llama 3 para obtener un ajuste y recomendación.
         """
-        formatted_news = "\n".join([f"- {news}" for news in news_context]) if news_context else "No hay noticias recientes disponibles en el corpus."
+        formatted_news = "\n".join([f"- {news}" for news in news_context]) if news_context else "No recent news available in the corpus."
 
         # Lógica para determinar el contexto del portafolio que le pasaremos a la IA
         if entry_price:
-            portfolio_status = f"El usuario YA POSEE esta acción en su portafolio. Precio de entrada (compra): ${entry_price:.2f}."
+            portfolio_status = f"The user ALREADY OWNS this stock in their portfolio. Entry price (purchase): ${entry_price:.2f}."
         else:
-            portfolio_status = "El usuario NO POSEE esta acción actualmente. Está evaluando una posible primera compra."
+            portfolio_status = "The user DOES NOT CURRENTLY OWN this stock. They are evaluating a possible first-time purchase."
 
         system_prompt = (
-            "Eres un Analista Cuantitativo Senior de Riesgos de Wall Street experto en trading algorítmico y modelos híbridos.\n"
-            "Tu tarea consiste en recibir una predicción matemática de precio base (Fase 1), señales técnicas, contexto de noticias (RAG), "
-            "y la situación del portafolio del cliente para calcular una modulación cognitiva cualitativa.\n\n"
+            "You are a Senior Quantitative Risk Analyst on Wall Street, an expert in algorithmic trading and hybrid models.\n"
+            "Your task is to receive a base mathematical price prediction (Phase 1), technical signals, news context (RAG), "
+            "and the client's portfolio situation to calculate a qualitative cognitive modulation.\n\n"
             
-            "REGLAS CRÍTICAS DE OPERACIÓN:\n"
-            "1. Determina un 'ajuste_llm_porcentual' que represente el impacto del sentimiento macro y noticias. Debe ser un número FLOTANTE ESTRICTO entre -0.05 y 0.05.\n"
-            "2. Está estrictamente PROHIBIDO salirse del rango [-0.05, 0.05]. Si el mercado es neutral, asigna 0.0.\n"
-            "3. Define 'confianza_analisis' como un flotante estricto entre 0.0 y 1.0 (ej. 0.85) según la calidad y confluencia técnica.\n"
-            "4. Determina la 'recomendacion' ('INVERTIR', 'ESPERAR' o 'NO INVERTIR') basándote en la convergencia de señales Y EN EL CONTEXTO DEL PORTAFOLIO. "
-            "Si el usuario ya posee la acción, 'ESPERAR' significa mantener la posición (Hold), 'NO INVERTIR' significa no comprar más (o vender si hay riesgo extremo).\n"
-            "5. En 'justificacion', redacta una síntesis analítica (máximo 3 frases) vinculando las noticias, lo técnico, su perfil de riesgo y si la acción ya es rentable respecto a su precio de entrada.\n\n"
+            "CRITICAL OPERATING RULES:\n"
+            "1. Determine an 'ajuste_llm_porcentual' representing the impact of macro sentiment and news. It must be a STRICT FLOATING point number between -0.05 and 0.05.\n"
+            "2. It is strictly FORBIDDEN to go outside the [-0.05, 0.05] range. If the market is neutral, assign 0.0.\n"
+            "3. Define 'confianza_analisis' as a strict float between 0.0 and 1.0 (e.g., 0.85) based on technical quality and confluence.\n"
+            "4. Determine the 'recomendacion' ('BUY', 'HOLD', or 'SELL') based on the convergence of signals AND THE PORTFOLIO CONTEXT. "
+            "If the user already owns the stock, 'HOLD' means maintaining the position, 'SELL' means do not buy more (or sell if there is extreme risk).\n"
+            "5. In 'justificacion', write an analytical synthesis (maximum 3 sentences) linking the news, technical data, their risk profile, and whether the stock is already profitable relative to its entry price. MUST BE WRITTEN IN ENGLISH.\n\n"
             
-            "RESTRICCIÓN ABSOLUTA DE FORMATO:\n"
-            "Responde EXCLUSIVAMENTE con el objeto JSON crudo. No agregues introducciones, explicaciones, ni bloques de código de marcado de tipo ```json```.\n\n"
+            "ABSOLUTE FORMAT RESTRICTION:\n"
+            "Respond EXCLUSIVELY with the raw JSON object. Do not add introductions, explanations, or markdown code blocks like ```json```.\n\n"
             
-            "EJEMPLO DE SALIDA CORRECTA:\n"
+            "EXAMPLE OF CORRECT OUTPUT:\n"
             "{\n"
             "  \"ajuste_llm_porcentual\": 0.025,\n"
             "  \"confianza_analisis\": 0.85,\n"
-            "  \"justificacion\": \"La acción supera ampliamente su precio de entrada. Dado su perfil agresivo, el soporte en SMA_50 y las noticias positivas de ingresos justifican mantener e incluso ampliar la posición.\",\n"
-            "  \"recomendacion\": \"INVERTIR\"\n"
+            "  \"justificacion\": \"The stock significantly exceeds its entry price. Given their aggressive profile, support at SMA_50 and positive revenue news justify holding and even expanding the position.\",\n"
+            "  \"recomendacion\": \"BUY\"\n"
             "}"
         )
 
         user_prompt = (
-            f"### CONTEXTO DEL PORTAFOLIO DEL CLIENTE\n"
-            f"- Situación: {portfolio_status}\n"
-            f"- Perfil de Riesgo del Inversor: {risk_profile.upper()}\n\n"
+            f"### CLIENT PORTFOLIO CONTEXT\n"
+            f"- Situation: {portfolio_status}\n"
+            f"- Investor Risk Profile: {risk_profile.upper()}\n\n"
             
-            f"### CONTEXTO DE ANÁLISIS PARA: {ticker.upper()}\n"
-            f"- Predicción Numérica Base del LSTM (Precio Cierre Mañana): ${pred_base:.2f}\n"
-            f"- Estado Técnico Actual: {json.dumps(technical_signals)}\n\n"
+            f"### ANALYSIS CONTEXT FOR: {ticker.upper()}\n"
+            f"- LSTM Base Numerical Prediction (Tomorrow's Closing Price): ${pred_base:.2f}\n"
+            f"- Current Technical Status: {json.dumps(technical_signals)}\n\n"
             
-            f"### CONTEXTO MACROECONÓMICO DE NOTICIAS (RAG):\n"
+            f"### MACROECONOMIC NEWS CONTEXT (RAG):\n"
             f"{formatted_news}\n\n"
             
-            f"Genera tu veredicto de ajuste financiero en formato JSON siguiendo las reglas estipuladas:"
+            f"Generate your financial adjustment verdict in JSON format following the stipulated rules:"
         )
 
         payload = {
