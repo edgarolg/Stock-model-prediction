@@ -45,6 +45,8 @@ protafolio
     ver como hacer para que si tienes acciones de la accion, que te salgan cuando te vas al analisis de ia, un mini resumen de tus acciones de esa
 analisis
     ponerlo en ingels
+    hacer interactiva la grafica de los datos, que sea de 1 mes, 2 o año y asi
+        ver cvual es el maxico que peudo obtener pero de ahi hacer el ajuste de los graficos
     ver que si haga el reanalisis
     ver que si despliegue mas noticas al picarle
     ver si la graifa peude tener mas datos y que sea mas interactiva
