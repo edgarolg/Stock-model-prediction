@@ -1,8 +1,9 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect } from 'react';
+import type  { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, TrendingUp, TrendingDown, Wallet, PieChart as PieChartIcon, Activity, Loader2, X, Edit2, Trash2 } from 'lucide-react';
 import { apiService } from '../services/api';
-import { PortfolioInvestment, APIInvestment, APIStrategy } from '../types';
+import type { PortfolioInvestment, APIInvestment, APIStrategy } from '../types';
 
 
 export default function Portfolio() {
@@ -37,7 +38,7 @@ export default function Portfolio() {
         strategyMap[strat.id] = strat.risk_profile;
       });
 
-      const formattedData: Investment[] = investmentsRes.data.map((inv: APIInvestment) => {
+      const formattedData: PortfolioInvestment[] = investmentsRes.data.map((inv: APIInvestment) => {
         const simulatedCurrentPrice = inv.entry_price * (1 + (Math.random() * 0.1 - 0.05));
         return {
           id: inv.id,
@@ -72,7 +73,7 @@ export default function Portfolio() {
   };
 
   // --- ABRIR MODAL PARA EDITAR ---
-  const handleOpenEdit = (e: React.MouseEvent, item: Investment) => {
+  const handleOpenEdit = (e: React.MouseEvent, item: PortfolioInvestment) => {
     e.stopPropagation(); // Evita que se abra la pantalla de análisis al hacer clic en el botón
     setEditingId(item.id);
     setFormData({

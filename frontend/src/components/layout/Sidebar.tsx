@@ -1,11 +1,11 @@
-import { LayoutDashboard, Briefcase, BrainCircuit, Settings } from 'lucide-react';
+import { LayoutDashboard, Briefcase, BrainCircuit } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 export default function Sidebar() {
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
     { name: 'Portfolio', icon: Briefcase, path: '/portfolio' },
-    { name: 'AI Analysis', icon: BrainCircuit, path: '/analysis/AAPL' }, // Temporalmente hardcodeado a AAPL
+    { name: 'AI Analysis', icon: BrainCircuit, path: '/analysis' }, // 💡 CAMBIADO: Ya no está hardcodeado a AAPL
   ];
 
   return (
@@ -20,10 +20,12 @@ export default function Sidebar() {
           <NavLink
             key={item.name}
             to={item.path}
+            // 💡 Usamos end: false para que se mantenga activo aunque estemos en un sub-path como /analysis/TSLA
+            end={item.path === '/'} 
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                 isActive 
-                  ? 'bg-gray-800/50 text-white font-medium' 
+                  ? 'bg-gray-800/50 text-white font-medium shadow-inner' 
                   : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
               }`
             }
@@ -33,13 +35,6 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
-
-      <div className=" hidden mt-auto">
-        <button className="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-white transition-all w-full rounded-xl hover:bg-gray-800/30">
-          <Settings className="w-5 h-5" />
-          Settings
-        </button>
-      </div>
     </aside>
   );
 }

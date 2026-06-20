@@ -13,14 +13,14 @@ class LLMService:
         self.ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/api/generate")
         self.model_name = os.getenv("OLLAMA_MODEL", "llama3")
 
-def generate_investment_analysis(
+    def generate_investment_analysis(
         self, 
         ticker: str, 
         pred_base: float, 
         technical_signals: Dict[str, Any], 
         news_context: List[str],
-        entry_price: float = None,       # <--- NUEVO PARÁMETRO
-        risk_profile: str = "moderado"   # <--- NUEVO PARÁMETRO
+        entry_price: float = None,
+        risk_profile: str = "Moderate"
     ) -> Dict[str, Any]:
         """
         Envía la predicción matemática base, las señales técnicas, el contexto RAG de noticias
@@ -96,16 +96,16 @@ def generate_investment_analysis(
             return {
                 "ajuste_llm_porcentual": max(-0.05, min(0.05, ajuste)),
                 "confianza_analisis": max(0.0, min(1.0, confianza)),
-                "justificacion": str(analysis_result.get("justificacion", "Análisis cualitativo completado.")),
-                "recomendacion": str(analysis_result.get("recomendacion", "ESPERAR")).upper()
+                "justificacion": str(analysis_result.get("justificacion", "Qualitative analysis completed successfully.")),
+                "recomendacion": str(analysis_result.get("recomendacion", "HOLD")).upper() # <-- CAMBIADO A HOLD
             }
 
         except Exception as e:
             return {
                 "ajuste_llm_porcentual": 0.0,
                 "confianza_analisis": 0.0,
-                "justificacion": f"[FALLBACK] No se pudo procesar el ajuste cognitivo. Detalle: {str(e)}",
-                "recomendacion": "ESPERAR"
+                "justificacion": f"LLM Error: {str(e)}",
+                "recomendacion": "HOLD"
             }
 
 llm_service = LLMService()

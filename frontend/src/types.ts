@@ -28,6 +28,8 @@ export interface APIAnalysisRecord {
   confianza_analisis: number;
   justificacion_llm: string;
   target_price?: number;
+  final_price_target?: number;
+  portfolio_context?: any;
 }
 
 export interface APIStockInfo {

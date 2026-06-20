@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, BrainCircuit, Activity, Database, ShieldAlert, Plus, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
-import { DashboardStockCard, DashboardPipelineFeed, RecentMovement, DistributionItem, APIInvestment, APIAnalysisRecord, APIStockHistoryPoint } from '../types';
-
+import { BrainCircuit, Activity, Database, ShieldAlert, Plus, TrendingUp, TrendingDown, RefreshCw, Info, DollarSign, Layers } from 'lucide-react';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
+import type { DashboardPipelineFeed, RecentMovement, APIInvestment, APIAnalysisRecord } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
-const DEFAULT_WATCHLIST = ['AAPL', 'NVDA', 'TSLA', 'MSFT'];
+
+// Tipo adaptado para tus tarjetas con datos locales puros
+interface LocalStockCard {
+  ticker: string;
+  shares: number;
+  entryPrice: string;
+  totalInvested: string;
+}
 
 export default function Dashboard() {
   const [activeRisk, setActiveRisk] = useState('Moderate');
@@ -14,7 +20,7 @@ export default function Dashboard() {
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   // Data states
-  const [stockCards, setStockCards] = useState<DashboardStockCard[]>([]);
+  const [stockCards, setStockCards] = useState<LocalStockCard[]>([]);
   const [aiPipelineFeed, setAiPipelineFeed] = useState<DashboardPipelineFeed[]>([]);
   const [recentMovements, setRecentMovements] = useState<RecentMovement[]>([]);
   const [aiDistribution, setAiDistribution] = useState([
@@ -24,10 +30,12 @@ export default function Dashboard() {
   ]);
   const [totalBalance, setTotalBalance] = useState(0);
 
-  const fetchDashboardData = async () => {
-    setRefreshing(true);
-    setApiStatus('checking');
-    
+  const fetchDashboardData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+      setApiStatus('checking');
+    }
+
     try {
       // 0. HEALTH CHECK
       try {
@@ -37,14 +45,16 @@ export default function Dashboard() {
         } else {
           setApiStatus('offline');
         }
-      } catch (error) {
+      } catch {
         setApiStatus('offline');
       }
 
-      // 1. Load Active Portfolio
+      // 1. Load Active Portfolio & Map Local Cards (0 llamadas externas de Yahoo Finance)
       const portfolioRes = await fetch(`${API_BASE_URL}/portfolio/investments/active`);
       if (portfolioRes.ok) {
         const portfolioData = await portfolioRes.json();
+        
+        // Mapeo para la tabla de movimientos recientes
         const movements = portfolioData.data.map((inv: APIInvestment) => ({
           date: new Date().toISOString().split('T')[0], 
           asset: inv.ticker,
@@ -55,73 +65,53 @@ export default function Dashboard() {
         }));
         setRecentMovements(movements);
         
-        // Calculate total balance
-        const balance = movements.reduce((acc: number, curr: any) => acc + curr.totalValue, 0);
+        // Calcular balance total invertido acumulado
+        const balance = movements.reduce((acc: number, curr: RecentMovement) => acc + curr.totalValue, 0);
         setTotalBalance(balance);
+
+        // OPTIMIZACIÓN: Creamos las tarjetas superiores DIRECTAMENTE desde los datos guardados en SQLite
+        const localCards = portfolioData.data.map((inv: APIInvestment) => ({
+          ticker: inv.ticker,
+          shares: inv.shares_quantity,
+          entryPrice: `$${inv.entry_price.toLocaleString('en-US', {minimumFractionDigits: 2})}`,
+          totalInvested: `$${(inv.entry_price * inv.shares_quantity).toLocaleString('en-US', {minimumFractionDigits: 2})}`
+        }));
+        setStockCards(localCards);
       }
 
-      // 2. Load Hybrid AI Analysis History
+      // 2. Load Hybrid AI Analysis History (Datos locales históricos de análisis de IA)
       const historyRes = await fetch(`${API_BASE_URL}/analysis/history/all?limit=20`);
       if (historyRes.ok) {
         const historyData = await historyRes.json();
         
-        // Map to table feed (Translating Spanish DB strings to English)
+        // Map to table feed
         const feed = historyData.data.map((record: APIAnalysisRecord) => ({
           id: record.id,
           ticker: record.ticker,
           lstm_base: record.pred_base_lstm > record.last_real_close ? 'Bullish' : 'Bearish',
           sentiment: 'AI Eval',
-          verdict: record.recomendacion === 'INVERTIR' ? 'BUY' : record.recomendacion === 'ESPERAR' ? 'HOLD' : 'SELL',
+          verdict: record.recomendacion?.toUpperCase() || 'HOLD',
           confidence: Math.round(record.confianza_analisis * 100) || 85,
           time: new Date(record.execution_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
         }));
         setAiPipelineFeed(feed);
 
         // Map to distribution chart
-        let inv = 0, esp = 0, no_inv = 0;
+        let buyCount = 0, holdCount = 0, sellCount = 0;
         historyData.data.forEach((r: APIAnalysisRecord) => {
-          if (r.recomendacion === 'INVERTIR') inv++;
-          else if (r.recomendacion === 'ESPERAR') esp++;
-          else no_inv++;
+          const rec = r.recomendacion?.toUpperCase();
+          if (rec === 'BUY') buyCount++;
+          else if (rec === 'HOLD') holdCount++;
+          else sellCount++;
         });
         
-        const total = inv + esp + no_inv || 1; 
+        const total = buyCount + holdCount + sellCount || 1; 
         setAiDistribution([
-          { name: 'Buy', value: Math.round((inv/total)*100), color: '#10B981' }, 
-          { name: 'Hold', value: Math.round((esp/total)*100), color: '#F59E0B' },         
-          { name: 'Sell', value: Math.round((no_inv/total)*100), color: '#EF4444' }
+          { name: 'Buy', value: Math.round((buyCount/total)*100), color: '#10B981' }, 
+          { name: 'Hold', value: Math.round((holdCount/total)*100), color: '#F59E0B' },         
+          { name: 'Sell', value: Math.round((sellCount/total)*100), color: '#EF4444' }
         ]);
       }
-
-      // 3. Load Market Data (Sparklines)
-      const cardsPromises = DEFAULT_WATCHLIST.map(async (ticker) => {
-        try {
-          const res = await fetch(`${API_BASE_URL}/stocks/${ticker}/history?period=1mo`);
-          if (!res.ok) return null;
-          const hist = await res.json();
-          
-          if (!hist.data || hist.data.length < 2) return null;
-          
-          const latestClose = hist.data[hist.data.length - 1].close;
-          const previousClose = hist.data[hist.data.length - 2].close;
-          const pctChange = ((latestClose - previousClose) / previousClose) * 100;
-          
-          return {
-            ticker: ticker,
-            name: ticker,
-            price: `$${latestClose.toLocaleString('en-US', {minimumFractionDigits: 2})}`,
-            change: `${pctChange > 0 ? '+' : ''}${pctChange.toFixed(2)}%`,
-            isUp: pctChange >= 0,
-            data: hist.data.slice(-10).map((d: APIStockHistoryPoint) => d.close) 
-          };
-        } catch (e) {
-          console.error(`Error fetching ${ticker}`, e);
-          return null;
-        }
-      });
-
-      const resolvedCards = (await Promise.all(cardsPromises)).filter(c => c !== null);
-      if(resolvedCards.length > 0) setStockCards(resolvedCards);
 
     } catch (error) {
       console.error("FastAPI Sync Error:", error);
@@ -132,7 +122,7 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchDashboardData();
+    fetchDashboardData(false);
   }, []);
 
   if (loading) {
@@ -183,13 +173,13 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-4">
             <button 
-              onClick={fetchDashboardData}
+              onClick={() => fetchDashboardData(true)}
               disabled={refreshing}
               className="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin text-indigo-400' : ''}`} />
             </button>
-            <div className="flex items-center gap-2 bg-[#141415] border border-gray-800 px-4 py-2 rounded-xl">
+            <div className="flex items-center gap-2 bg-[#141415] border border-gray-800 px-4 py-2 rounded-xl group relative cursor-help">
               <span className="relative flex h-3 w-3">
                 {apiStatus !== 'offline' && (
                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
@@ -210,34 +200,42 @@ export default function Dashboard() {
                   {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking...'}
                 </span>
               </span>
+              {/* TOOLTIP */}
+              <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-gray-800 border border-gray-700 text-xs text-gray-300 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                Checks the connection status to your Python/FastAPI backend and SQLite database.
+              </div>
             </div>
           </div>
         </div>
 
-        {/* 1. Quick Tracking Cards (Sparklines) */}
+        {/* 1. Quick Tracking Cards - REDISEÑADO: Muestra datos puros de tu base de datos local */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {stockCards.map((stock) => (
-            <div key={stock.ticker} className="bg-[#141415] border border-gray-800 rounded-2xl p-4 hover:border-gray-600 transition-colors cursor-pointer group">
-              <div className="flex justify-between items-start mb-2">
+            <div key={stock.ticker} className="bg-[#141415] border border-gray-800 rounded-2xl p-4 hover:border-gray-600 transition-colors cursor-pointer group relative">
+              <div className="flex justify-between items-center mb-1">
                 <h3 className="text-base font-bold text-white group-hover:text-indigo-400 transition-colors">{stock.ticker}</h3>
-                <span className={`flex items-center text-xs font-bold ${stock.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {stock.isUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                  {stock.change}
-                </span>
+                <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded font-mono">DB Stored</span>
               </div>
-              <p className="text-xl font-bold text-white mb-2">{stock.price}</p>
-              <div className="h-8 w-full opacity-70 group-hover:opacity-100 transition-opacity">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={stock.data.map((val: any, i: number) => ({ value: val, index: i }))}>
-                    <Line type="monotone" dataKey="value" stroke={stock.isUp ? '#10B981' : '#EF4444'} strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+              
+              <div className="space-y-1.5 mt-3">
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span className="flex items-center gap-1"><Layers className="w-3 h-3 text-indigo-400" /> Shares:</span>
+                  <span className="font-bold text-white">{stock.shares}</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span className="flex items-center gap-1"><DollarSign className="w-3 h-3 text-emerald-400" /> Avg Entry:</span>
+                  <span className="font-semibold text-gray-200">{stock.entryPrice}</span>
+                </div>
+                <div className="border-t border-gray-800/80 my-1.5 pt-1.5 flex justify-between text-xs">
+                  <span className="text-gray-400 font-medium">Total Cost:</span>
+                  <span className="font-bold text-emerald-400">{stock.totalInvested}</span>
+                </div>
               </div>
             </div>
           ))}
           {stockCards.length === 0 && (
             <div className="col-span-4 text-center py-6 border border-dashed border-gray-700 rounded-xl text-gray-500">
-              Could not load yfinance data. Check your connection.
+              No active assets in your database. Use the button below to log an investment.
             </div>
           )}
         </div>
@@ -245,13 +243,22 @@ export default function Dashboard() {
         {/* 2. Hybrid Predictions Feed (Live Pipeline) */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6 shadow-lg shadow-black/20">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <BrainCircuit className="text-indigo-400 w-5 h-5" /> Live AI Pipeline Feed
-            </h3>
-            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-md">Latest DB queries</span>
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <BrainCircuit className="text-indigo-400 w-5 h-5" /> Live AI Pipeline Feed
+              </h3>
+              <div className="group relative flex items-center">
+                <Info className="w-4 h-4 text-gray-500 hover:text-indigo-400 cursor-help transition-colors" />
+                {/* TOOLTIP */}
+                <div className="absolute left-0 top-full mt-2 w-72 p-3 bg-gray-800 border border-gray-700 text-xs text-gray-300 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  Historical log of all AI analyses executed. <strong className="text-white">You may see the same asset multiple times</strong> because this table shows every individual run generated across different dates.
+                </div>
+              </div>
+            </div>
+            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded-md hidden sm:block">Latest DB queries</span>
           </div>
           
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full text-left text-sm">
               <thead className="text-xs text-gray-500 uppercase border-b border-gray-800">
                 <tr>
@@ -312,9 +319,18 @@ export default function Dashboard() {
         {/* 3. Recent Portfolio Movements */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Database className="text-gray-400 w-5 h-5" /> Recent Movements
-            </h3>
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Database className="text-gray-400 w-5 h-5" /> Recent Movements
+              </h3>
+              <div className="group relative flex items-center">
+                <Info className="w-4 h-4 text-gray-500 hover:text-indigo-400 cursor-help transition-colors" />
+                {/* TOOLTIP */}
+                <div className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-800 border border-gray-700 text-xs text-gray-300 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  Shows your active investments directly pulled from your local SQLite database.
+                </div>
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -362,9 +378,24 @@ export default function Dashboard() {
       <div className="space-y-6">
         
         {/* Block 1: Financial Summary */}
-        <div className="bg-gradient-to-br from-[#141415] to-[#0a0a0b] border border-gray-800 rounded-2xl p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10"><Activity className="w-24 h-24 text-indigo-500"/></div>
-          <p className="text-sm text-gray-400 mb-1 relative z-10">Total Invested</p>
+        <div className="bg-gradient-to-br from-[#141415] to-[#0a0a0b] border border-gray-800 rounded-2xl p-6 relative">
+          
+          {/* Contenedor fantasma SOLO para recortar el icono de fondo */}
+          <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <Activity className="w-24 h-24 text-indigo-500"/>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 mb-1 relative z-10">
+            <p className="text-sm text-gray-400">Total Invested</p>
+            <div className="group relative flex items-center">
+              <Info className="w-3.5 h-3.5 text-gray-500 hover:text-white cursor-help transition-colors" />
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-48 p-2 bg-gray-800 border border-gray-700 text-xs text-gray-300 text-center rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                Sum of the total value of all your active investments in the database.
+              </div>
+            </div>
+          </div>
           <h2 className="text-4xl font-bold text-white mb-2 relative z-10">
             ${totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}
           </h2>
@@ -378,6 +409,12 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-4">
             <ShieldAlert className="w-4 h-4 text-gray-400" />
             <h3 className="text-sm font-bold text-white">Active Risk Profile</h3>
+            <div className="group relative flex items-center ml-auto">
+              <Info className="w-4 h-4 text-gray-500 hover:text-indigo-400 cursor-help transition-colors" />
+              <div className="absolute right-0 bottom-full mb-2 w-64 p-3 bg-gray-800 border border-gray-700 text-xs text-gray-300 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                Adjusts Llama 3's strictness during the analysis. A conservative profile requires a much stronger confluence of signals to recommend a "BUY".
+              </div>
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-2 bg-gray-900/50 p-1.5 rounded-xl">
             {['Conservative', 'Moderate', 'Aggressive'].map((risk) => (
@@ -398,7 +435,15 @@ export default function Dashboard() {
 
         {/* Block 3: Market Stance (Donut Chart) */}
         <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6">
-          <h3 className="text-sm font-bold text-white mb-4">Historical Distribution</h3>
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="text-sm font-bold text-white">Historical Distribution</h3>
+            <div className="group relative flex items-center ml-auto">
+              <Info className="w-4 h-4 text-gray-500 hover:text-indigo-400 cursor-help transition-colors" />
+              <div className="absolute right-0 bottom-full mb-2 w-60 p-3 bg-gray-800 border border-gray-700 text-xs text-gray-300 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                Overall proportion of Buy, Hold, and Sell recommendations generated across all stored historical analyses.
+              </div>
+            </div>
+          </div>
           
           <div className="h-48 relative mb-6">
             <ResponsiveContainer width="100%" height="100%">
@@ -408,7 +453,7 @@ export default function Dashboard() {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#0a0a0b', borderColor: '#1f2937', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
+                <RechartsTooltip contentStyle={{ backgroundColor: '#0a0a0b', borderColor: '#1f2937', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -434,11 +479,11 @@ export default function Dashboard() {
         <div className="space-y-3 pt-2">
           <button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3.5 rounded-xl transition-colors shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
             <BrainCircuit className="w-5 h-5" />
-            Run Full Pipeline (/run/full-pipeline)
+            Run Full Pipeline
           </button>
           <button className="w-full bg-[#141415] border border-gray-800 hover:bg-gray-800 text-white font-medium py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2">
             <Plus className="w-4 h-4 text-indigo-400" />
-            Log Investment (/portfolio/investments)
+            Log Investment
           </button>
         </div>
 

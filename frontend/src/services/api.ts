@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { InvestmentPayload } from '../types'; // Ajusta la ruta si es necesario
+import type { InvestmentPayload } from '../types';
 
 const api = axios.create({
   baseURL: 'http://localhost:8000',
