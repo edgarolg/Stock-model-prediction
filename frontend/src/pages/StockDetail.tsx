@@ -1,31 +1,42 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { BrainCircuit, Activity, ChevronRight, Loader2, AlertCircle, BarChart3, TrendingUp, TrendingDown, DollarSign, Target, History } from 'lucide-react';
+import { BrainCircuit, Activity, ChevronRight, Loader2, AlertCircle, TrendingUp, TrendingDown, History, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Bar, AreaChart, Area } from 'recharts';
-import type { APIStockInfo, APIStockHistoryPoint, APIInvestment, APIAnalysisRecord } from '../types';
+import type { APIStockHistoryPoint, APIInvestment, APIAnalysisRecord } from '../types';               
 
-type Timeframe = '1mo' | '3mo' | '6mo' | '1y';
+type Timeframe = '1mo' | '3mo' | '6mo' | '1y' | '2y' | '5y';
 
 interface FormattedHistoryPoint {
   date: string;
   targetPrice: number;
 }
 
+type ExtendedChartPoint = Partial<APIStockHistoryPoint> & {
+  date: string;
+  predicted_close?: number;
+};
+
+
 export default function StockDetail() {
   const { ticker } = useParams(); 
   const currentTicker = ticker ? ticker.toUpperCase() : 'AAPL';
 
   // --- STATES: MARKET ---
-  const [marketInfo, setMarketInfo] = useState<APIStockInfo | null>(null);
   const [allChartData, setAllChartData] = useState<APIStockHistoryPoint[]>([]); 
   const [timeframe, setTimeframe] = useState<Timeframe>('3mo'); 
   const [isLoadingMarket, setIsLoadingMarket] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
 
+  // --- STATES: CHART TOGGLES ---
+  const [showSma20, setShowSma20] = useState(false);
+  const [showSma50, setShowSma50] = useState(false);
+  const [showPrediction, setShowPrediction] = useState(false);
+
   // --- STATES: PORTFOLIO ---
   const [userInvestment, setUserInvestment] = useState<APIInvestment | null>(null);
-
   // --- STATES: AI ---
+  const [mathPrediction, setMathPrediction] = useState<number | null>(null);
+  const [isRunningMath, setIsRunningMath] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<APIAnalysisRecord | null>(null);
   const [aiHistory, setAiHistory] = useState<FormattedHistoryPoint[]>([]); 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -38,11 +49,6 @@ export default function StockDetail() {
       setChartError(null);
       
       try {
-        // A. General Info & Fundamentals
-        const infoRes = await fetch(`http://localhost:8000/stocks/${currentTicker}/info`);
-        if (infoRes.ok) setMarketInfo(await infoRes.json());
-        
-        // B. User Investments
         const portfolioRes = await fetch(`http://localhost:8000/portfolio/investments/active`);
         if (portfolioRes.ok) {
           const portfolioData = await portfolioRes.json();
@@ -50,30 +56,27 @@ export default function StockDetail() {
           setUserInvestment(investmentsArray.find((inv: APIInvestment) => inv.ticker === currentTicker) || null);
         }
 
-        // C. Prices & Technical Indicators
-        const historyRes = await fetch(`http://localhost:8000/stocks/${currentTicker}/indicators?period=1y`);
+        const historyRes = await fetch(`http://localhost:8000/stocks/${currentTicker}/indicators?period=5y`);
         if (historyRes.ok) {
           const rawData = await historyRes.json();
-          setAllChartData(rawData); 
+          const chartArray = rawData.history ? rawData.history : (Array.isArray(rawData) ? rawData : []);
+          setAllChartData(chartArray); 
         } else {
           setChartError("Error 500: API limit reached or indicator calculation failed.");
         }
 
-        // D. AI Analysis (Current & History)
         const aiHistoryRes = await fetch(`http://localhost:8000/analysis/history/${currentTicker}`);
         if (aiHistoryRes.ok) {
           const historyList = await aiHistoryRes.json();
           const records = historyList.data || [];
           
           if (records.length > 0) {
-            // Save history for AI chart
             const formattedAiHistory = records.map((r: APIAnalysisRecord) => ({
               date: new Date(r.execution_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
               targetPrice: r.final_price_target || 0
             })).reverse(); 
             setAiHistory(formattedAiHistory);
 
-            // Check if the latest is from today
             const latest = records[0];
             const today = new Date().toDateString();
             if (new Date(latest.execution_date).toDateString() === today) {
@@ -84,6 +87,7 @@ export default function StockDetail() {
         }
       } catch (error) {
         console.error("Error loading data:", error);
+        setChartError("Network error checking connection.");
       } finally {
         setIsLoadingMarket(false);
       }
@@ -94,19 +98,82 @@ export default function StockDetail() {
 
   // 2. SMART FILTERING (MEMORY)
   const displayedChartData = useMemo(() => {
-    if (allChartData.length === 0) return [];
-    if (timeframe === '1y') return allChartData;
-
-    const referenceDate = new Date(allChartData[allChartData.length - 1].date);
-    const monthsToSubtract = timeframe === '1mo' ? 1 : timeframe === '3mo' ? 3 : 6;
+    if (!Array.isArray(allChartData) || allChartData.length === 0) return [];
     
-    const cutoffDate = new Date(referenceDate);
-    cutoffDate.setMonth(cutoffDate.getMonth() - monthsToSubtract);
+    // Le decimos a TS que este arreglo usará nuestro nuevo tipo extendido
+    let filteredData: ExtendedChartPoint[] = allChartData;
+    
+    if (timeframe !== '5y') {
+      const lastItem = allChartData[allChartData.length - 1];
+      if (lastItem && lastItem.date) {
+        const referenceDate = new Date(lastItem.date);
+        const cutoffDate = new Date(referenceDate);
 
-    return allChartData.filter(item => new Date(item.date) >= cutoffDate);
-  }, [allChartData, timeframe]);
+        if (timeframe === '1mo') cutoffDate.setMonth(cutoffDate.getMonth() - 1);
+        else if (timeframe === '3mo') cutoffDate.setMonth(cutoffDate.getMonth() - 3);
+        else if (timeframe === '6mo') cutoffDate.setMonth(cutoffDate.getMonth() - 6);
+        else if (timeframe === '1y') cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
+        else if (timeframe === '2y') cutoffDate.setFullYear(cutoffDate.getFullYear() - 2);
 
-  // 3. AI PIPELINE (MANUAL)
+        filteredData = allChartData.filter(item => new Date(item.date) >= cutoffDate);
+      }
+    }
+
+    // AI PREDICTION INJECTION
+    const activeTargetPrice = aiAnalysis?.final_price_target || mathPrediction;
+
+    if (showPrediction && activeTargetPrice && filteredData.length > 0) {
+      // dataWithPrediction ahora acepta predicted_close y close: undefined
+      const dataWithPrediction: ExtendedChartPoint[] = [...filteredData];
+      const lastValidPoint = dataWithPrediction[dataWithPrediction.length - 1];
+      
+      dataWithPrediction[dataWithPrediction.length - 1] = {
+        ...lastValidPoint,
+        predicted_close: lastValidPoint.close 
+      };
+
+      const futureDate = new Date(lastValidPoint.date);
+      futureDate.setDate(futureDate.getDate() + 30);
+
+      dataWithPrediction.push({
+        date: futureDate.toISOString().split('T')[0],
+        predicted_close: activeTargetPrice,
+        close: undefined, 
+      });
+
+      return dataWithPrediction;
+    }
+
+    return filteredData;
+  }, [allChartData, timeframe, showPrediction, aiAnalysis, mathPrediction]);
+
+// 3. PIPELINE A: ONLY MATH MODELS (LSTM + XGBoost)
+  const runMathModelOnly = async () => {
+    setIsRunningMath(true);
+    try {
+      const response = await fetch(`http://localhost:8000/analysis/run/quantitative/${currentTicker}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) throw new Error("Failed to execute math model");
+      
+      const data = await response.json();
+      
+      // ¡Aquí está la magia! Agregamos pred_base_lstm
+      const targetPrice = data.pred_base_lstm || data.precio_base || data.prediction || data.target; 
+      
+      console.log("Precio matemático recibido:", targetPrice); // Para que lo veas en F12
+      
+      setMathPrediction(targetPrice);
+      setShowPrediction(true);
+    } catch (error) {
+      console.error("Detalle del error en runMathModelOnly:", error);
+      alert("Error running LSTM/XGBoost models. Check if the endpoint /analysis/run/math/{ticker} exists in backend.");
+    } finally {
+      setIsRunningMath(false);
+    }
+  };
+  // 4. AI PIPELINE (MANUAL)
   const runFullPipeline = async () => {
     setIsAnalyzing(true);
     try {
@@ -125,6 +192,7 @@ export default function StockDetail() {
         portfolio_context: data.portfolio_context
       } as APIAnalysisRecord);
       setAnalysisSource('Live analysis generated successfully');
+      setShowPrediction(true); // Auto-mostrar predicción al generar
     } catch {
       alert("There was an error generating the AI analysis. Check the console.");
     } finally {
@@ -133,19 +201,16 @@ export default function StockDetail() {
   };
 
   // --- DERIVED CALCULATIONS ---
-  const currentPrice = marketInfo?.currentPrice || allChartData[allChartData.length - 1]?.close || 0;
+  // Corrección del precio: Buscar el último precio válido (ignorando puntos proyectados de IA)
+  const lastValidPricePoint = displayedChartData.slice().reverse().find(d => d.close !== undefined);
+  const currentPrice = Number(lastValidPricePoint?.close || 0);
   
-  // P&L Calculation (Unrealized)
   let pnl = 0, pnlPercent = 0;
   if (userInvestment && currentPrice > 0) {
     pnl = (currentPrice - userInvestment.entry_price) * userInvestment.shares_quantity;
     pnlPercent = ((currentPrice - userInvestment.entry_price) / userInvestment.entry_price) * 100;
   }
 
-  // Number formatter (e.g., 2.5B, 1.2M)
-  const formatCompact = (num: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(num);
-
-  // Recommendation Translator (DB -> UI)
   const getUIRecommendation = (rec: string | undefined) => {
     if (!rec) return 'HOLD';
     if (rec === 'INVERTIR') return 'BUY';
@@ -166,9 +231,7 @@ export default function StockDetail() {
   return (
     <div className="space-y-6 pb-10">
       
-      {/* ==========================================
-          HEADER: PRICE & PORTFOLIO (WITH P&L)
-      ========================================== */}
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 w-full">
         <div className="flex-1 w-full"> 
           <div className="flex items-center gap-3 mb-2">
@@ -177,18 +240,18 @@ export default function StockDetail() {
             </div>
             <div className='flex items-center gap-3'>
               <h1 className="text-3xl font-bold text-white tracking-wide">{currentTicker}</h1>
-              <p className="text-gray-400 text-sm mt-1">{marketInfo?.shortName || 'Equities'}</p>
+              <p className="text-gray-400 text-sm mt-1">Equities</p>
             </div>
           </div>
 
+          <p className="text-gray-400 text-sm mt-1 text-left">Current Price:</p>
           <div className="flex justify-between items-end w-full">
             <span className="text-5xl font-bold text-white">
-              ${Number(currentPrice).toFixed(2)}
+              ${currentPrice > 0 ? currentPrice.toFixed(2) : '---'}
             </span>
             
             {userInvestment && (
               <div className="flex gap-4 items-end">
-                {/* P&L Block */}
                 <div className={`px-4 py-2 rounded-xl text-sm flex flex-col items-end border ${pnl >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
                   <span className="text-xs opacity-80 uppercase tracking-wider font-semibold mb-0.5">Return (P&L)</span>
                   <div className="flex items-center gap-2">
@@ -199,7 +262,6 @@ export default function StockDetail() {
                     </span>
                   </div>
                 </div>
-                {/* Buy Info Block */}
                 <div className="bg-gray-800/50 border border-gray-700 text-gray-300 px-4 py-2 rounded-xl text-sm flex flex-col items-end">
                    <span className="font-semibold text-white">{userInvestment.shares_quantity} Shares</span>
                    <span className="text-xs text-gray-400">Entry: ${userInvestment.entry_price}</span>
@@ -209,85 +271,86 @@ export default function StockDetail() {
           </div>
         </div>
         
-        {aiAnalysis && (
+        {/* BOTONES DE ACCIÓN */}
+        <div className="flex gap-3">
+          {/* Botón: Solo Modelo Matemático (Usa isRunningMath) */}
           <button 
-            onClick={runFullPipeline} disabled={isAnalyzing}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-6 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-600/20"
+            onClick={runMathModelOnly} 
+            disabled={isRunningMath || isAnalyzing}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-emerald-600/20"
           >
-            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <BrainCircuit className="w-4 h-4 text-white" />}
-            {isAnalyzing ? 'Analyzing...' : 'Re-Analyze with AI'}
+            {isRunningMath ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <Activity className="w-4 h-4 text-white" />}
+            {isRunningMath ? 'Calculando...' : 'Proyección Rápida (Math)'}
           </button>
-        )}
-      </div>
 
-      {/* ==========================================
-          FUNDAMENTALS (CARDS)
-      ========================================== */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-[#141415] border border-gray-800 rounded-xl p-4 flex items-center gap-3">
-          <div className="p-2 bg-gray-800 rounded-lg text-gray-400"><DollarSign className="w-5 h-5"/></div>
-          <div>
-            <p className="text-xs text-gray-500 uppercase font-semibold">Market Cap</p>
-            <p className="text-white font-bold">{marketInfo?.marketCap ? `$${formatCompact(marketInfo.marketCap)}` : 'N/A'}</p>
-          </div>
-        </div>
-        <div className="bg-[#141415] border border-gray-800 rounded-xl p-4 flex items-center gap-3">
-          <div className="p-2 bg-gray-800 rounded-lg text-gray-400"><BarChart3 className="w-5 h-5"/></div>
-          <div>
-            <p className="text-xs text-gray-500 uppercase font-semibold">PE Ratio</p>
-            <p className="text-white font-bold">{marketInfo?.trailingPE ? marketInfo.trailingPE.toFixed(2) : 'N/A'}</p>
-          </div>
-        </div>
-        <div className="bg-[#141415] border border-gray-800 rounded-xl p-4 flex items-center gap-3">
-          <div className="p-2 bg-gray-800 rounded-lg text-gray-400"><Activity className="w-5 h-5"/></div>
-          <div>
-            <p className="text-xs text-gray-500 uppercase font-semibold">EPS (Earnings)</p>
-            <p className="text-white font-bold">{marketInfo?.trailingEps ? `$${marketInfo.trailingEps}` : 'N/A'}</p>
-          </div>
-        </div>
-        <div className="bg-[#141415] border border-gray-800 rounded-xl p-4 flex items-center gap-3">
-          <div className="p-2 bg-gray-800 rounded-lg text-gray-400"><Target className="w-5 h-5"/></div>
-          <div className="w-full">
-            <p className="text-xs text-gray-500 uppercase font-semibold">52 Week Range</p>
-            <div className="flex items-center gap-2 text-xs font-medium text-gray-400 mt-1">
-              <span>{marketInfo?.fiftyTwoWeekLow ? `$${marketInfo.fiftyTwoWeekLow.toFixed(0)}` : '-'}</span>
-              <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                 <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, Math.max(0, ((currentPrice - (marketInfo?.fiftyTwoWeekLow || 0)) / ((marketInfo?.fiftyTwoWeekHigh || 1) - (marketInfo?.fiftyTwoWeekLow || 0))) * 100))}%` }}></div>
-              </div>
-              <span>{marketInfo?.fiftyTwoWeekHigh ? `$${marketInfo.fiftyTwoWeekHigh.toFixed(0)}` : '-'}</span>
-            </div>
-          </div>
+          {/* Botón: Full Pipeline Llama 3 (Usa isAnalyzing) */}
+          {aiAnalysis ? (
+            <button 
+              onClick={runFullPipeline} disabled={isAnalyzing || isRunningMath}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-6 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-600/20"
+            >
+              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <BrainCircuit className="w-4 h-4 text-white" />}
+              {isAnalyzing ? 'Analizando...' : 'Re-Analizar con IA'}
+            </button>
+          ) : (
+            <button 
+              onClick={runFullPipeline} disabled={isAnalyzing || isRunningMath}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-600/20"
+            >
+              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <Sparkles className="w-4 h-4 text-white" />}
+              {isAnalyzing ? 'Ejecutando Pipeline...' : 'Análisis Híbrido Completo'}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ==========================================
-          MAIN TECHNICAL CHART (PRICE + VOL + SMAs)
-      ========================================== */}
+
+      {/* MAIN TECHNICAL CHART */}
       <div className="bg-[#141415] border border-gray-800 rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-6 gap-4">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <Activity className="text-indigo-400" /> Technical Analysis (Price, Vol, SMA)
+            <Activity className="text-indigo-400" /> Price Action & Indicators
           </h3>
-          <div className="flex gap-1 bg-[#0a0a0b] p-1 rounded-xl border border-gray-800">
-            {(['1mo', '3mo', '6mo', '1y'] as const).map((range) => (
-              <button
-                key={range} onClick={() => setTimeframe(range)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  timeframe === range ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
-                }`}
-              >
-                {range.toUpperCase()}
+          
+          <div className="flex flex-wrap items-center gap-3">
+            {/* TOGGLES PARA SMAs Y PREDICCION */}
+            <div className="flex gap-2 mr-4 border-r border-gray-800 pr-4">
+              <button onClick={() => setShowSma20(!showSma20)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${showSma20 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-[#0a0a0b] text-gray-500 border border-gray-800 hover:text-gray-300'}`}>
+                {showSma20 ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} SMA 20
               </button>
-            ))}
+              <button onClick={() => setShowSma50(!showSma50)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${showSma50 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-[#0a0a0b] text-gray-500 border border-gray-800 hover:text-gray-300'}`}>
+                {showSma50 ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} SMA 50
+              </button>
+              {(aiAnalysis || mathPrediction) && (
+                <button onClick={() => setShowPrediction(!showPrediction)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${showPrediction ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-[#0a0a0b] text-gray-500 border border-gray-800 hover:text-gray-300'}`}>
+                  <Sparkles className="w-3 h-3" /> Projection
+                </button>
+              )}
+            </div>
+
+            {/* TIME FRAME */}
+            <div className="flex gap-1 bg-[#0a0a0b] p-1 rounded-xl border border-gray-800">
+              {(['1mo', '3mo', '6mo', '1y', '2y', '5y'] as const).map((range) => (
+                <button
+                  key={range} onClick={() => setTimeframe(range)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                    timeframe === range ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                  }`}
+                >
+                  {range.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         
         <div className="h-[400px] w-full flex flex-col gap-4">
           {chartError ? (
             <div className="h-full flex flex-col items-center justify-center text-rose-400"><AlertCircle className="w-8 h-8 mb-2" /><p>{chartError}</p></div>
+          ) : displayedChartData.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-500"><p>No data available to display chart.</p></div>
           ) : (
             <>
-              {/* MAIN CHART */}
               <div className="flex-1">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={displayedChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
@@ -303,14 +366,20 @@ export default function StockDetail() {
                     />
                     
                     <Bar yAxisId="volume" dataKey="volume" fill="#374151" opacity={0.3} maxBarSize={20} />
-                    <Line yAxisId="price" type="monotone" dataKey="sma_50" stroke="#f59e0b" strokeWidth={1} dot={false} name="SMA 50" />
-                    <Line yAxisId="price" type="monotone" dataKey="sma_20" stroke="#3b82f6" strokeWidth={1.5} dot={false} name="SMA 20" />
-                    <Line yAxisId="price" type="monotone" dataKey="close" stroke="#10B981" strokeWidth={2.5} dot={false} name="Price" activeDot={{ r: 6, fill: '#10B981', stroke: '#0a0a0b', strokeWidth: 2 }} />
+                    
+                    {/* TOGGLEABLE LINES */}
+                    {showSma50 && <Line yAxisId="price" type="monotone" dataKey="sma_50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="SMA 50" />}
+                    {showSma20 && <Line yAxisId="price" type="monotone" dataKey="sma_20" stroke="#3b82f6" strokeWidth={1.5} dot={false} name="SMA 20" />}
+                    
+                    {/* BASE PRICE */}
+                    <Line yAxisId="price" connectNulls type="monotone" dataKey="close" stroke="#10B981" strokeWidth={2.5} dot={false} name="Actual Price" activeDot={{ r: 6, fill: '#10B981', stroke: '#0a0a0b', strokeWidth: 2 }} />
+                    
+                    {/* PREDICTIVE AI LINE */}
+                    {showPrediction && <Line yAxisId="price" connectNulls type="monotone" dataKey="predicted_close" stroke="#a855f7" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#a855f7', stroke: '#0a0a0b' }} name="Model Prediction" activeDot={{ r: 8, fill: '#a855f7' }} />}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
 
-              {/* SECONDARY CHART: RSI */}
               <div className="h-[100px] border-t border-gray-800 pt-4 relative">
                 <span className="absolute top-4 left-0 text-xs font-bold text-gray-500">RSI (14)</span>
                 <ResponsiveContainer width="100%" height="100%">
@@ -327,9 +396,7 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {/* ==========================================
-          HYBRID AI ZONE (LLAMA 3)
-      ========================================== */}
+      {/* HYBRID AI ZONE (LLAMA 3) */}
       {isAnalyzing ? (
         <div className="bg-[#141415] border border-indigo-500/30 rounded-2xl p-12 text-center relative overflow-hidden">
           <div className="absolute inset-0 bg-indigo-600/5 animate-pulse"></div>
@@ -350,8 +417,6 @@ export default function StockDetail() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          
-          {/* Left Panel: AI Brain (3 cols) */}
           <div className="lg:col-span-3 bg-[#141415] border border-indigo-500/30 rounded-2xl p-6 relative overflow-hidden shadow-[0_0_15px_rgba(79,70,229,0.1)]">
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-indigo-600/10 blur-3xl rounded-full pointer-events-none"></div>
 
@@ -403,7 +468,6 @@ export default function StockDetail() {
             <p className="text-xs text-right text-gray-500 mt-4">{analysisSource}</p>
           </div>
 
-          {/* Right Panel: AI History (2 cols) */}
           <div className="lg:col-span-2 bg-[#141415] border border-gray-800 rounded-2xl p-6 flex flex-col">
             <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-2">
               <History className="text-gray-400 w-5 h-5" /> AI Target Evolution

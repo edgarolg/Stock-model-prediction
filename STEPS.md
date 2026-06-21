@@ -38,9 +38,3 @@ Este documento registra el progreso actual del backend híbrido, las contingenci
 * [x] Paginas extra, logica de botones de coneccion.
 * [x] botones de back, pulir los diseños y que todo sea conecatable entre si.
 * [x] Manejar la carga de los datos, para que si tarda mucho en cargar que tenga un loadres.
-
-cosa por pagina
-details
-    hacer interactiva la grafica de los datos, que sea de 1 mes, 2 o año y asi
-        ver cvual es el maxico que peudo obtener pero de ahi hacer el ajuste de los graficos
-    ver si poner que despliegue las noticias que se usaron

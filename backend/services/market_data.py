@@ -119,6 +119,7 @@ class AlphaVantageProvider(BaseMarketDataProvider):
 
     def fetch_history(self, ticker: str, period: str) -> pd.DataFrame:
         print(f"[-] Descargando historial de {ticker.upper()} desde Alpha Vantage...")
+        
         params = {
             "function": "TIME_SERIES_DAILY",
             "symbol": ticker.upper(),
@@ -140,7 +141,7 @@ class AlphaVantageProvider(BaseMarketDataProvider):
 
         df = self.procesar_alpha_vantage(data)
 
-        return df.tail(300)
+        return df
 
     def fetch_info(self, ticker: str) -> dict:
         print(f"[-] Descargando metadata de {ticker.upper()} desde Alpha Vantage...")
