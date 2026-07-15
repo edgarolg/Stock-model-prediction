@@ -18,7 +18,7 @@ export const apiService = {
   },
 
   runFullPipeline: async (ticker: string) => {
-    const response = await api.post(`/run/full-pipeline/${ticker}`);
+    const response = await api.post(`/analysis/run/full-pipeline/${ticker}`);
     return response.data;
   },
 
